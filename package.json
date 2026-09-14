@@ -1,0 +1,23 @@
+{
+  "name": "tishyor",
+  "version": "1.0.0",
+  "private": true,
+  "main": "frontend/index.ts",
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail -n FRONTEND,BACKEND -c blue,green \"npm --prefix frontend start\" \"npm --prefix backend run dev\"",
+    "start": "npm run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "dependencies": {
+    "expo": "~57.0.22",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-web": "^0.21.2"
+  }
+}

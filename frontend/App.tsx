@@ -1,42 +1,27 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+
+import WelcomeScreen from './screens/WelcomeScreen';
+import RegisterScreen from './screens/RegisterScreen';
+import HomeScreen from './screens/HomeScreen';
+
+const Stack = createNativeStackNavigator();
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.badge}>TISHYOR</Text>
-      <Text style={styles.title}>Loyiha ishga tushirildi</Text>
-      <Text style={styles.subtitle}>Mobil ilova muvaffaqiyatli ishlayapti.</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName="Welcome"
+          screenOptions={{ headerShown: false }}
+        >
+          <Stack.Screen name="Welcome" component={WelcomeScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="Home" component={HomeScreen} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f4f7f2',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  badge: {
-    color: '#2f6b4f',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 2,
-    marginBottom: 18,
-  },
-  title: {
-    color: '#18352a',
-    fontSize: 30,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  subtitle: {
-    color: '#607268',
-    fontSize: 16,
-    marginTop: 12,
-    textAlign: 'center',
-  },
-});

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
   },
   "dependencies": {
     "express": "^5.1.0"

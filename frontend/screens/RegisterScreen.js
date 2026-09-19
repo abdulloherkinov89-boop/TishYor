@@ -15,8 +15,9 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// API manzili — <SERVER_IP> o'rniga o'zingizning IP manzilingizni kiriting
-const API_URL = 'http://<SERVER_IP>:8000/auth/register';
+// Mobil qurilma kompyuter bilan bir Wi-Fi tarmog'ida bo'lishi kerak.
+const API_HOST = Platform.OS === 'web' ? 'localhost' : '192.168.71.86';
+const API_URL = `http://${API_HOST}:8000/auth/register`;
 
 const RegisterScreen = () => {
   const navigation = useNavigation();

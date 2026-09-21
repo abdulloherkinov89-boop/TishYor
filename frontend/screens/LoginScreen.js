@@ -1,39 +1,30 @@
 import React, { useState } from 'react';
 import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
   ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
 
-const RegisterScreen = () => {
+const LoginScreen = () => {
   const navigation = useNavigation();
-  const route = useRoute();
-  const role = route.params?.role || 'patient';
-
-  // Inputlar uchun state'lar
-  const [ism, setIsm] = useState('');
-  const [familiya, setFamiliya] = useState('');
   const [telefon, setTelefon] = useState('');
-
-  // Yuklanish va xatolik state'lari
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handleRegister = async () => {
-    // Maydonlar to'ldirilganligini tekshirish
-    if (!ism.trim() || !familiya.trim() || !telefon.trim()) {
-      setErrorMessage("Iltimos, barcha maydonlarni to'ldiring");
+  const handleLogin = async () => {
+    if (!telefon.trim()) {
+      setErrorMessage('Iltimos, telefon raqamingizni kiriting');
       return;
     }
 
@@ -41,39 +32,24 @@ const RegisterScreen = () => {
     setErrorMessage('');
 
     try {
-      const response = await apiFetch('/auth/register', {
+      const response = await apiFetch('/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ism: ism.trim(),
-          familiya: familiya.trim(),
-          telefon: telefon.trim(),
-          role,
-        }),
+        body: JSON.stringify({ telefon: telefon.trim() }),
       });
-
       const data = await response.json();
 
       if (response.ok) {
-        // Status 200 bo'lganda token saqlanadi
-        if (data.access_token) {
-          await AsyncStorage.setItem('token', data.access_token);
-        }
-        if (data.user) {
-          await AsyncStorage.setItem('user', JSON.stringify(data.user));
-        }
+        await AsyncStorage.setItem('token', data.access_token);
+        await AsyncStorage.setItem('user', JSON.stringify(data.user));
         navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
       } else {
-        // Serverdan kelgan xatolik xabari (masalan status 400)
-        setErrorMessage(
-          data.detail || "Ro'yxatdan o'tishda xatolik yuz berdi"
-        );
+        setErrorMessage(data.detail || 'Kirishda xatolik yuz berdi');
       }
     } catch (error) {
-      // Tarmoq yoki ulanish xatosi
-      setErrorMessage("Serverga ulanishda xatolik yuz berdi");
+      setErrorMessage('Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
     }
@@ -90,49 +66,14 @@ const RegisterScreen = () => {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Sarlavha */}
           <View style={styles.headerContainer}>
-            <Text style={styles.title}>
-              {role === 'clinic' ? "Klinika ro'yxati" : "Bemor ro'yxati"}
+            <Text style={styles.title}>Kirish</Text>
+            <Text style={styles.subtitle}>
+              Telefon raqamingiz orqali hisobingizga kiring
             </Text>
-
           </View>
 
-          <TouchableOpacity
-            style={styles.loginLink}
-            onPress={() => navigation.navigate('Login')}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.loginLinkText}>Hisobingiz bormi? Kirish</Text>
-          </TouchableOpacity>
-
-          {/* Form qismi */}
           <View style={styles.formContainer}>
-            {/* Ism Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Ism</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ismingizni kiriting"
-                placeholderTextColor="#94A3B8"
-                value={ism}
-                onChangeText={setIsm}
-              />
-            </View>
-
-            {/* Familiya Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Familiya</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Familiyangizni kiriting"
-                placeholderTextColor="#94A3B8"
-                value={familiya}
-                onChangeText={setFamiliya}
-              />
-            </View>
-
-            {/* Telefon Input */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Telefon raqam</Text>
               <TextInput
@@ -142,18 +83,18 @@ const RegisterScreen = () => {
                 keyboardType="phone-pad"
                 value={telefon}
                 onChangeText={setTelefon}
+                autoComplete="tel"
+                textContentType="telephoneNumber"
               />
             </View>
 
-            {/* Xatolik xabari */}
             {errorMessage ? (
               <Text style={styles.errorText}>{errorMessage}</Text>
             ) : null}
 
-            {/* Ro'yxatdan o'tish tugmasi */}
             <TouchableOpacity
               style={[styles.button, loading && styles.disabledButton]}
-              onPress={handleRegister}
+              onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.8}
             >
@@ -163,8 +104,18 @@ const RegisterScreen = () => {
                   <Text style={styles.buttonText}>Yuklanmoqda...</Text>
                 </View>
               ) : (
-                <Text style={styles.buttonText}>Ro'yxatdan o'tish</Text>
+                <Text style={styles.buttonText}>Kirish</Text>
               )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.registerLink}
+              onPress={() => navigation.navigate('Register', { role: 'patient' })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.registerLinkText}>
+                Hisobingiz yo'qmi? Yaratish
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -173,7 +124,7 @@ const RegisterScreen = () => {
   );
 };
 
-export default RegisterScreen;
+export default LoginScreen;
 
 const styles = StyleSheet.create({
   container: {
@@ -257,11 +208,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  loginLink: {
+  registerLink: {
     alignItems: 'center',
     marginTop: 20,
   },
-  loginLinkText: {
+  registerLinkText: {
     color: '#0284C7',
     fontSize: 15,
     fontWeight: '700',

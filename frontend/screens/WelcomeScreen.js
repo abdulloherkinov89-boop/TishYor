@@ -4,247 +4,259 @@ import {
   Text,
   View,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   StatusBar,
-  Pressable,
+  Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withDelay,
-  FadeInDown,
-} from 'react-native-reanimated';
-import {
-  User,
-  Search,
-  Sparkles,
-  Syringe,
-  Smile,
-  ShieldAlert,
-  Star,
-  MapPin,
-  Hospital,
-} from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Search, ChevronRight } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
 
-// Ranglar palitrasi (Dark Theme)
-const COLORS = {
-  bg: '#0F172A',
-  cardBg: '#1E293B',
-  primary: '#2DD4BF',
-  headerGradientStart: '#1E1B4B',
-  headerGradientEnd: '#0F172A',
-  textPrimary: '#F8FAFC',
-  textSecondary: '#94A3B8',
-  inputBg: '#334155',
-  starYellow: '#FACC15',
-};
-
-// Kategoriyalar
-const CATEGORIES = [
-  { id: '1', title: 'Tish tozalash', icon: Sparkles },
-  { id: '2', title: 'Implant', icon: Syringe },
-  { id: '3', title: 'Ortodontiya', icon: Smile },
-  { id: '4', title: 'Favqulodda', icon: ShieldAlert },
+const FILTERS = [
+  "Yaqin klinikalar",
+  "Reyting bo'yicha",
+  'Arzon narx',
+  'Ochiq hozir',
 ];
 
-// Mock klinikalar
-const CLINICS = [
+const MOCK_CLINICS = [
   {
     id: '1',
-    name: 'Dent Smile',
+    name: 'Stomatologiya Plus',
+    tag: 'KLINIKA',
+    description: 'Zamonaviy uskunalar, tajribali shifokorlar va kafolatlangan stomatologik xizmatlar.',
     rating: '4.9',
-    address: 'Chilonzor tumani, Toshkent',
-    color: '#0284C7',
+    address: 'Mirobod tumani',
+    gradient: ['#EF9F27', '#F0997B'],
   },
   {
     id: '2',
-    name: 'Oq Tish Klinikasi',
+    name: 'Denta Care Clinic',
+    tag: 'KLINIKA',
+    description: "Og'riqsiz davolash, tishlarni oqartirish va barcha turdagi protezlash xizmatlari.",
     rating: '4.8',
-    address: 'Yunusobod tumani, Toshkent',
-    color: '#0D9488',
+    address: 'Chilonzor tumani',
+    gradient: ['#7F77DD', '#5742A9'],
   },
   {
     id: '3',
-    name: 'MedDent Plus',
+    name: 'Pearl Dental Center',
+    tag: 'KLINIKA',
+    description: 'Bolalar va kattalar uchun maxsus stomatologik yondashuv hamda profilaktika.',
     rating: '4.7',
-    address: 'Mirzo Ulug‘bek tumani, Toshkent',
-    color: '#6366F1',
+    address: 'Yunusobod tumani',
+    gradient: ['#3C3489', '#EF9F27'],
+  },
+  {
+    id: '4',
+    name: 'Smile Studio',
+    tag: 'KLINIKA',
+    description: "Estetik stomatologiya va breket tizimlarini o'rnatish bo'yicha yetakchi markaz.",
+    rating: '4.6',
+    address: 'Shayxontohur tumani',
+    gradient: ['#F0997B', '#7F77DD'],
+  },
+  {
+    id: '5',
+    name: 'Grand Medical Care',
+    tag: 'KLINIKA',
+    description: "Ko'p tarmoqli diagnostika va terapiya markazi. Yuqori aniqlikdagi tahlillar.",
+    rating: '4.9',
+    address: 'Yakkasaroy tumani',
+    gradient: ['#2575FC', '#6A11CB'],
   },
 ];
 
-// Klinika Kartochkasi Komponenti (Animatsiyali scaling bilan)
-const ClinicCard = ({ item }) => {
-  const scale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <Animated.View style={[animatedStyle, styles.clinicCardContainer]}>
-      <Pressable
-        onPressIn={() => {
-          scale.value = withTiming(0.97, { duration: 100 });
-        }}
-        onPressOut={() => {
-          scale.value = withTiming(1, { duration: 150 });
-        }}
-        style={styles.clinicCard}
-      >
-        <View style={[styles.clinicPlaceholder, { backgroundColor: item.color }]}>
-          <Hospital color={COLORS.textPrimary} size={32} />
-        </View>
-        <View style={styles.clinicInfo}>
-          <Text style={styles.clinicName}>{item.name}</Text>
-          <View style={styles.ratingRow}>
-            <Star size={16} color={COLORS.starYellow} fill={COLORS.starYellow} />
-            <Text style={styles.ratingText}>{item.rating}</Text>
-          </View>
-          <View style={styles.addressRow}>
-            <MapPin size={14} color={COLORS.textSecondary} />
-            <Text style={styles.addressText} numberOfLines={1}>
-              {item.address}
-            </Text>
-          </View>
-        </View>
-      </Pressable>
-    </Animated.View>
-  );
-};
-
-export default function HomeScreen() {
+export default function HomeScreen({ isProfileModalVisible, onCloseProfileModal }) {
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const [userName, setUserName] = useState<string>('');
+  const [userName, setUserName] = useState('Mehmon');
+  const [userInitials, setUserInitials] = useState('M');
+  const [activeFilter, setActiveFilter] = useState(FILTERS[0]);
 
   useEffect(() => {
-    // AsyncStorage'dan foydalanuvchi ismini o'qish
-    const loadUserData = async () => {
-      try {
-        const userJson = await AsyncStorage.getItem('user');
-        if (userJson !== null) {
-          const parsedUser = JSON.parse(userJson);
-          if (parsedUser?.ism) {
-            setUserName(parsedUser.ism);
-            return;
-          } else if (parsedUser?.name) {
-            setUserName(parsedUser.name);
-            return;
-          }
-        }
-
-        // Agar alohida "ism" kaliti bilan saqlangan bo'lsa
-        const singleName = await AsyncStorage.getItem('ism');
-        if (singleName) {
-          setUserName(singleName);
-        }
-      } catch (error) {
-        // Xatolik yuz bersa, default holatda jim qoladi
-      }
-    };
-
+    checkToken();
     loadUserData();
-  }, []);
+  }, [navigation]);
+
+  const checkToken = async () => {
+    const token = await AsyncStorage.getItem('token');
+    if (!token) {
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    }
+  };
+
+  const loadUserData = async () => {
+    try {
+      const storedUser = await AsyncStorage.getItem('user');
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+
+        const firstName =
+          parsedUser.ism || parsedUser.firstName || parsedUser.name || '';
+        const lastName = parsedUser.familiya || parsedUser.lastName || '';
+
+        if (firstName || lastName) {
+          const fullName = `${firstName} ${lastName}`.trim();
+          setUserName(fullName);
+
+          const firstLetter = firstName ? firstName[0].toUpperCase() : '';
+          const lastLetter = lastName ? lastName[0].toUpperCase() : '';
+          setUserInitials(`${firstLetter}${lastLetter}` || 'M');
+        }
+      }
+    } catch (e) {
+      // Async storage xatoliklari e'tiborsiz qoldiriladi
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-      {/* YANDEX USLUBIDAGI YUMALOQ HEADER */}
       <LinearGradient
-        colors={[COLORS.headerGradientStart, COLORS.headerGradientEnd]}
-        style={[
-          styles.header,
-          {
-            paddingTop: insets.top + 15,
-          },
-        ]}
+        colors={['#3C3489', '#26215C']}
+        style={[styles.header, { paddingTop: insets.top + 16 }]}
       >
-        <Animated.View
-          entering={FadeInDown.duration(600).springify()}
-          style={styles.headerContent}
-        >
-          <View style={styles.welcomeTextContainer}>
-            <Text style={styles.subGreetingText}>Sog‘lom tabassum vaqti</Text>
-            <Text style={styles.greetingText}>
-              {userName ? `Xush kelibsiz, ${userName}!` : 'Xush kelibsiz!'}
-            </Text>
+        <View style={styles.profileSection}>
+          <View>
+            <Text style={styles.greetingText}>Xayrli kun</Text>
+            <Text style={styles.userNameText}>{userName}</Text>
           </View>
-          <TouchableOpacity style={styles.profileButton} activeOpacity={0.8}>
-            {userName ? (
-              <Text style={styles.profileAvatarText}>
-                {userName.charAt(0).toUpperCase()}
-              </Text>
-            ) : (
-              <User color={COLORS.primary} size={22} />
-            )}
-          </TouchableOpacity>
-        </Animated.View>
+          {/* Avatar faqat vizual ko'rinishda (bosish olib tashlandi) */}
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{userInitials}</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity activeOpacity={0.8} style={styles.searchContainer}>
+          <Search color="#B4B2A9" size={20} style={styles.searchIcon} />
+          <Text style={styles.searchPlaceholder}>
+            Klinika yoki xizmat qidirish
+          </Text>
+        </TouchableOpacity>
       </LinearGradient>
 
-      {/* ASOSIY CONTENT */}
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 30 }}
       >
-        {/* QIDIRUV MAYDONI */}
-        <Animated.View
-          entering={FadeInDown.delay(150).duration(600).springify()}
-          style={styles.searchContainer}
-        >
-          <Search color={COLORS.textSecondary} size={20} style={styles.searchIcon} />
-          <TextInput
-            placeholder="Klinika qidirish..."
-            placeholderTextColor={COLORS.textSecondary}
-            style={styles.searchInput}
-            editable={false} // Statik bo'lgani uchun
-          />
-        </Animated.View>
-
-        {/* KATEGORIYALAR */}
-        <Animated.View
-          entering={FadeInDown.delay(300).duration(600).springify()}
-          style={styles.sectionContainer}
-        >
-          <Text style={styles.sectionTitle}>Tezkor xizmatlar</Text>
+        <View style={styles.filtersSection}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesScroll}
+            contentContainerStyle={styles.filtersScrollContent}
           >
-            {CATEGORIES.map((cat) => {
-              const IconComp = cat.icon;
+            {FILTERS.map((filter) => {
+              const isActive = activeFilter === filter;
               return (
                 <TouchableOpacity
-                  key={cat.id}
-                  style={styles.categoryCard}
+                  key={filter}
                   activeOpacity={0.7}
+                  onPress={() => setActiveFilter(filter)}
+                  style={[styles.filterChip, isActive && styles.filterChipActive]}
                 >
-                  <View style={styles.categoryIconBox}>
-                    <IconComp color={COLORS.primary} size={22} />
-                  </View>
-                  <Text style={styles.categoryTitle}>{cat.title}</Text>
+                  <Text
+                    style={[styles.filterText, isActive && styles.filterTextActive]}
+                  >
+                    {filter}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-        </Animated.View>
+        </View>
 
-        {/* TAVSIYA ETILGAN KLINIKALAR */}
-        <Animated.View
-          entering={FadeInDown.delay(450).duration(600).springify()}
-          style={styles.sectionContainer}
-        >
-          <Text style={styles.sectionTitle}>Tavsiya etilgan klinikalar</Text>
-          {CLINICS.map((clinic) => (
-            <ClinicCard key={clinic.id} item={clinic} />
-          ))}
-        </Animated.View>
+        <View style={styles.clinicsSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Klinikalar</Text>
+            <TouchableOpacity style={styles.seeAllButton}>
+              <Text style={styles.seeAllText}>Barchasi</Text>
+              <ChevronRight color="#EF9F27" size={16} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.cardsList}>
+            {MOCK_CLINICS.map((clinic) => (
+              <View key={clinic.id} style={styles.clinicCard}>
+                <LinearGradient
+                  colors={clinic.gradient}
+                  style={styles.cardImagePlaceholder}
+                />
+
+                <View style={styles.cardContent}>
+                  <Text style={styles.tagText}>{clinic.tag}</Text>
+                  <Text style={styles.clinicName}>{clinic.name}</Text>
+                  <Text style={styles.descriptionText} numberOfLines={2}>
+                    {clinic.description}
+                  </Text>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.cardFooter}>
+                    <Text style={styles.footerInfoText}>
+                      ⭐ {clinic.rating}  ·  {clinic.address}
+                    </Text>
+
+                    <TouchableOpacity activeOpacity={0.8} style={styles.actionButton}>
+                      <Text style={styles.actionButtonText}>+ Ko'rish</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
       </ScrollView>
+
+      {/* Profil Bottom Sheet Modali (Tashqaridan keluvchi propslar orqali) */}
+      <Modal
+        visible={isProfileModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={onCloseProfileModal}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={onCloseProfileModal}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => {}} style={{ width: '100%' }}>
+            <View style={styles.bottomSheet}>
+              <View style={styles.dragHandle} />
+
+              <View style={styles.sheetAvatar}>
+                <Text style={styles.sheetAvatarText}>{userInitials}</Text>
+              </View>
+              <Text style={styles.sheetUserName}>{userName}</Text>
+
+              <TouchableOpacity style={styles.sheetMenuItem}>
+                <Text style={styles.sheetMenuText}>Profilni tahrirlash</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.sheetMenuItem}>
+                <Text style={styles.sheetMenuText}>Mening qabullarim</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.sheetMenuItem}>
+                <Text style={styles.sheetMenuText}>Sozlamalar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.logoutButton}
+                onPress={async () => {
+                  await AsyncStorage.removeItem('token');
+                  await AsyncStorage.removeItem('user');
+                  if (onCloseProfileModal) onCloseProfileModal();
+                  navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+                }}
+              >
+                <Text style={styles.logoutButtonText}>Chiqish</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -252,164 +264,243 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.bg,
+    backgroundColor: '#15111F',
   },
   header: {
     paddingHorizontal: 20,
-    paddingBottom: 25,
-    borderBottomLeftRadius: 36,
-    borderBottomRightRadius: 36,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    paddingBottom: 24,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    zIndex: 10,
     elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 10,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
   },
-  headerContent: {
+  profileSection: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  welcomeTextContainer: {
-    flex: 1,
-  },
-  subGreetingText: {
-    fontSize: 13,
-    color: COLORS.primary,
-    fontWeight: '600',
-    marginBottom: 2,
+    alignItems: 'center',
+    marginBottom: 20,
   },
   greetingText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
+    color: '#B4B2A9',
+    fontSize: 14,
   },
-  profileButton: {
+  userNameText: {
+    color: '#F5F4FB',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  avatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: COLORS.cardBg,
-    alignItems: 'center',
+    backgroundColor: '#EF9F27',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(45, 212, 191, 0.3)',
+    alignItems: 'center',
   },
-  profileAvatarText: {
-    color: COLORS.primary,
-    fontSize: 18,
+  avatarText: {
+    color: '#15111F',
+    fontSize: 16,
     fontWeight: 'bold',
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 40,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 16,
-    paddingHorizontal: 15,
-    height: 52,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   searchIcon: {
     marginRight: 10,
   },
-  searchInput: {
-    flex: 1,
-    color: COLORS.textPrimary,
-    fontSize: 15,
+  searchPlaceholder: {
+    color: '#B4B2A9',
+    fontSize: 14,
   },
-  sectionContainer: {
-    marginBottom: 24,
+  filtersSection: {
+    marginTop: 20,
+  },
+  filtersScrollContent: {
+    paddingHorizontal: 20,
+    gap: 10,
+  },
+  filterChip: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  filterChipActive: {
+    backgroundColor: '#3C3489',
+    borderColor: '#EF9F27',
+  },
+  filterText: {
+    color: '#B4B2A9',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  filterTextActive: {
+    color: '#F5F4FB',
+    fontWeight: 'bold',
+  },
+  clinicsSection: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   sectionTitle: {
+    color: '#F5F4FB',
     fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: 14,
+    fontWeight: 'bold',
   },
-  categoriesScroll: {
-    paddingRight: 10,
-  },
-  categoryCard: {
-    backgroundColor: COLORS.cardBg,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    marginRight: 12,
-    alignItems: 'center',
+  seeAllButton: {
     flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  categoryIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(45, 212, 191, 0.1)',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
   },
-  categoryTitle: {
-    color: COLORS.textPrimary,
+  seeAllText: {
+    color: '#EF9F27',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
   },
-  clinicCardContainer: {
-    marginBottom: 14,
+  cardsList: {
+    flexDirection: 'column',
   },
   clinicCard: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 20,
-    padding: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: '#231D3D',
+    borderRadius: 18,
+    marginBottom: 20,
+    overflow: 'hidden',
   },
-  clinicPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
+  cardImagePlaceholder: {
+    width: '100%',
+    height: 180,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
   },
-  clinicInfo: {
-    flex: 1,
+  cardContent: {
+    padding: 18,
+  },
+  tagText: {
+    color: '#EF9F27',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    marginBottom: 6,
+    textTransform: 'uppercase',
   },
   clinicName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: 4,
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 8,
   },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  ratingText: {
-    color: COLORS.textPrimary,
+  descriptionText: {
+    color: '#B4B2A9',
     fontSize: 13,
-    fontWeight: '600',
-    marginLeft: 4,
+    lineHeight: 18,
+    marginBottom: 14,
   },
-  addressRow: {
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 14,
+  },
+  cardFooter: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  addressText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    marginLeft: 4,
+  footerInfoText: {
+    color: '#D1CFCE',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  actionButton: {
+    backgroundColor: '#1E3B2B',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  actionButtonText: {
+    color: '#4ADE80',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
     flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  bottomSheet: {
+    backgroundColor: '#1A1625',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 34,
+    minHeight: 320,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  sheetAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EF9F27',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  sheetAvatarText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#15111F',
+  },
+  sheetUserName: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#F5F4FB',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  sheetMenuItem: {
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  sheetMenuText: {
+    fontSize: 15,
+    color: '#D1CFCE',
+  },
+  logoutButton: {
+    marginTop: 16,
+    backgroundColor: 'rgba(239,68,68,0.15)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  logoutButtonText: {
+    color: '#EF4444',
+    fontSize: 15,
+    fontWeight: 'bold',
   },
 });

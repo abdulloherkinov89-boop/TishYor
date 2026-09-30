@@ -21,6 +21,7 @@ const LoginScreen = () => {
   const [telefon, setTelefon] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
 
   const handleLogin = async () => {
     if (!telefon.trim()) {
@@ -39,17 +40,28 @@ const LoginScreen = () => {
         },
         body: JSON.stringify({ telefon: telefon.trim() }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (response.ok) {
-        await AsyncStorage.setItem('token', data.access_token);
-        await AsyncStorage.setItem('user', JSON.stringify(data.user));
-        navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+        if (!data.access_token || !data.user) {
+          throw new Error('Server javobida token yoki foydalanuvchi ma\'lumoti yo\'q');
+        }
+
+        const role = data.user.role || 'patient';
+        await AsyncStorage.multiSet([
+          ['token', data.access_token],
+          ['user', JSON.stringify({ ...data.user, role })],
+          ['role', role],
+        ]);
+        navigation.reset({
+          index: 0,
+          routes: [{ name: role === 'clinic' ? 'ClinicHome' : 'Welcome' }],
+        });
       } else {
         setErrorMessage(data.detail || 'Kirishda xatolik yuz berdi');
       }
     } catch (error) {
-      setErrorMessage('Serverga ulanishda xatolik yuz berdi');
+      setErrorMessage(error.message || 'Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
     }
@@ -57,7 +69,7 @@ const LoginScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -77,12 +89,18 @@ const LoginScreen = () => {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Telefon raqam</Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  isFocused && styles.inputFocused,
+                  errorMessage ? styles.inputError : null,
+                ]}
                 placeholder="+998901234567"
                 placeholderTextColor="#94A3B8"
                 keyboardType="phone-pad"
                 value={telefon}
                 onChangeText={setTelefon}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
                 autoComplete="tel"
                 textContentType="telephoneNumber"
               />
@@ -129,7 +147,7 @@ export default LoginScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
   },
   keyboardView: {
     flex: 1,
@@ -139,19 +157,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 32,
     justifyContent: 'center',
+    maxWidth: 500,
+    width: '100%',
+    alignSelf: 'center',
   },
   headerContainer: {
     marginBottom: 32,
+    alignItems: 'center',
   },
   title: {
     fontSize: 28,
     fontWeight: '800',
     color: '#0F172A',
     marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 15,
     color: '#64748B',
+    textAlign: 'center',
   },
   formContainer: {
     width: '100%',
@@ -169,31 +193,32 @@ const styles = StyleSheet.create({
     height: 52,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
+    borderColor: '#BAE6FD',
+    borderRadius: 26,
+    paddingHorizontal: 20,
+    fontSize: 15,
     color: '#0F172A',
+  },
+  inputFocused: {
+    borderColor: '#0083CA',
+  },
+  inputError: {
+    borderColor: '#EF4444',
   },
   errorText: {
     color: '#EF4444',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     marginBottom: 16,
     textAlign: 'center',
   },
   button: {
-    height: 56,
-    backgroundColor: '#0284C7',
-    borderRadius: 16,
+    height: 52,
+    backgroundColor: '#0083CA',
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   disabledButton: {
     opacity: 0.7,
@@ -201,7 +226,7 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -210,11 +235,11 @@ const styles = StyleSheet.create({
   },
   registerLink: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 24,
   },
   registerLinkText: {
-    color: '#0284C7',
+    color: '#0083CA',
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
   },
 });

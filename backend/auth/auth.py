@@ -9,10 +9,10 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
 
 
-def create_access_token(user_id: int, telefon: str) -> str:
+def create_access_token(user_id: int, telefon: str, role: str = "patient") -> str:
     """Foydalanuvchi uchun 30 kun amal qiladigan JWT yaratadi."""
     expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
-    payload = {"sub": str(user_id), "telefon": telefon, "exp": expire}
+    payload = {"sub": str(user_id), "telefon": telefon, "role": role, "exp": expire}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 

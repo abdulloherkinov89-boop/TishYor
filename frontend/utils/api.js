@@ -14,7 +14,8 @@ export async function apiFetch(url, options = {}) {
   const token = await AsyncStorage.getItem('token');
   const headers = new Headers(options.headers || {});
 
-  if (!headers.has('Content-Type') && options.body) {
+  const isMultipartBody = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  if (!headers.has('Content-Type') && options.body && !isMultipartBody) {
     headers.set('Content-Type', 'application/json');
   }
   if (token) {

@@ -1,11 +1,19 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
+
+from models.models import ClinicStatus
 
 
 class UserCreate(BaseModel):
     ism: str
     familiya: str
+    telefon: str
+    role: str = "patient"
+
+
+class LoginRequest(BaseModel):
     telefon: str
 
 
@@ -26,16 +34,74 @@ class TokenResponse(BaseModel):
     user: UserOut
 
 
-class ClinicOut(BaseModel):
-    id: int
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+
+class ClinicRegister(BaseModel):
     name: str
+    telefon: str
     address: str
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    phone: Optional[str] = None
-    price_range: Optional[str] = None
-    is_24h: bool
+    patients_served: Optional[int] = None
+    license_number: Optional[str] = None
+    description: str | None = None
+    logo_url: str | None = None
+
+
+class ClinicCreated(BaseModel):
+    id: int
+    name: str
+    status: ClinicStatus
+
+
+class ClinicRegisterResponse(BaseModel):
+    clinic: ClinicCreated
+    access_token: str
+    token_type: str = "bearer"
+    role: str = "clinic"
+
+
+class ClinicResponse(BaseModel):
+    id: int
+    name: str
+    telefon: str
+    address: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    patients_served: Optional[int] = None
+    license_number: Optional[str] = None
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
+    status: ClinicStatus
+    created_at: datetime
+    tag: str
+    rating: str
+    gradient_start: str
+    gradient_end: str
 
     class Config:
         from_attributes = True
 
+
+class ClinicOut(BaseModel):
+    id: int
+    name: str
+    tag: str
+    description: str | None = None
+    logo_url: str | None = None
+    rating: str
+    address: str
+    gradient_start: str
+    gradient_end: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    patients_served: Optional[int] = None
+    license_number: Optional[str] = None
+    status: ClinicStatus
+
+    class Config:
+        from_attributes = True

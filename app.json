@@ -3,11 +3,12 @@
     "name": "TishYor",
     "slug": "tishyor",
     "version": "1.0.0",
+    "updates": {
+      "enabled": false
+    },
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "splash": {
-      "backgroundColor": "#0F172A"
-    },
+    "backgroundColor": "#0F172A",
     "ios": {
       "supportsTablet": true
     },

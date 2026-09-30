@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from auth.auth import create_access_token
 from database.db import get_db
 from models.models import User
-from schemas.schemas import TokenResponse, UserCreate
+from schemas.schemas import TokenResponse, UserCreate, UserOut
 
 
 router = APIRouter(prefix="/auth", tags=["Ro'yxatdan o'tish"])
@@ -29,7 +29,7 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
         ism=user_data.ism,
         familiya=user_data.familiya,
         telefon=user_data.telefon,
-        role="patient",
+        role=user_data.role if user_data.role in {"patient", "clinic"} else "patient",
     )
     db.add(user)
     db.commit()
@@ -37,3 +37,13 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
 
     token = create_access_token(user.id, user.telefon)
     return TokenResponse(access_token=token, user=user)
+
+
+@router.get(
+    "/users",
+    response_model=list[UserOut],
+    summary="Ro'yxatdan o'tgan foydalanuvchilarni olish",
+)
+def get_registered_users(db: Session = Depends(get_db)):
+    """Ro'yxatdan o'tgan foydalanuvchilar ro'yxatini qaytaradi."""
+    return db.query(User).order_by(User.id.desc()).all()

@@ -16,6 +16,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import { File as ExpoFile } from 'expo-file-system';
 import { apiFetch } from '../utils/api';
 import {
   Building2,
@@ -254,11 +255,8 @@ export default function ClinicRegister({ navigation }) {
         if (Platform.OS === 'web' && formData.logoFile) {
           logoForm.append('file', formData.logoFile, fileName);
         } else {
-          logoForm.append('file', {
-            uri: formData.logoUri,
-            name: fileName,
-            type: imageType,
-          });
+          const logoFile = new ExpoFile(formData.logoUri);
+          logoForm.append('file', logoFile, fileName);
         }
 
         const uploadResponse = await apiFetch('/clinics/upload-logo', {
@@ -297,10 +295,20 @@ export default function ClinicRegister({ navigation }) {
         throw new Error(getBackendErrorMessage(responseData.detail));
       }
 
+      if (!responseData.access_token || !responseData.clinic) {
+        throw new Error('Klinika saqlandi, lekin server kirish ma’lumotlarini qaytarmadi.');
+      }
+
       const role = responseData.role || 'clinic';
       const clinicUser = {
         ...responseData.clinic,
+        address: payload.address,
         telefon: payload.telefon,
+        patients_served: payload.patients_served,
+        description: payload.description,
+        logo_url: payload.logo_url,
+        latitude: payload.latitude ?? null,
+        longitude: payload.longitude ?? null,
         role,
       };
       await AsyncStorage.multiSet([
@@ -308,7 +316,10 @@ export default function ClinicRegister({ navigation }) {
         ['user', JSON.stringify(clinicUser)],
         ['role', role],
       ]);
-      navigation?.reset({ index: 0, routes: [{ name: 'ClinicHome' }] });
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'ClinicHome', params: { clinic: clinicUser } }],
+      });
     } catch (error) {
       Alert.alert('Xatolik', getBackendErrorMessage(error.message));
     } finally {

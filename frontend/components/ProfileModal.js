@@ -1,449 +1,618 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import {
-  StyleSheet,
-  Text,
+  Modal,
   View,
-  ScrollView,
+  Text,
+  StyleSheet,
   TouchableOpacity,
-  Image,
-  StatusBar,
+  TouchableWithoutFeedback,
   Animated,
-  ActivityIndicator,
-  RefreshControl,
+  PanResponder,
+  Dimensions,
+  ScrollView,
+  Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, ChevronRight, Home, Calendar, MessageCircle, User } from 'lucide-react-native';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { apiFetch } from '../utils/api';
-import ProfileModal from '../components/ProfileModal';
+import {
+  X,
+  User,
+  CalendarCheck,
+  Settings,
+  LogOut,
+  Phone,
+  Calendar,
+  ChevronRight,
+  Moon,
+  Bell,
+} from 'lucide-react-native';
+import { resetRoot } from '../RootNavigation';
 
-const FILTERS = [
-  "Yaqin klinikalar",
-  "Reyting bo'yicha",
-  'Arzon narx',
-  'Ochiq hozir',
-];
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SNAP_HALF = SCREEN_HEIGHT * 0.45;
+const SNAP_FULL = 0;
+const SNAP_CLOSED = SCREEN_HEIGHT;
 
-// --- PASTKI NAVBAR TUGMASI (animatsiyali) ---
-function TabButton({ icon: Icon, label, isActive, onPress, onLayout, badge }) {
-  const widthAnim = useRef(new Animated.Value(isActive ? 1 : 0)).current;
+const ProfileModal = ({ visible, onClose, user, userPhone, userJoinDate }) => {
+  const translateY = useRef(new Animated.Value(SNAP_CLOSED)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const [snapState, setSnapState] = useState('HALF');
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  // === 1. HAQIQIY MA'LUMOTLARNI SAQLASH UCHUN STATE VA FUNKSIYALAR ===
+  const [profileData, setProfileData] = useState({
+    name: '',
+    role: 'patient',
+    phone: '',
+    joinDate: '',
+  });
+
+  // === 2 va 3. SOZLAMALAR UCHUN STATELAR ===
+  // Hozircha faqat local state; haqiqiy tema/bildirishnoma o'zgarishi keyinroq butun ilova context/store'iga ulanadi.
+  const [darkMode, setDarkMode] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   useEffect(() => {
-    Animated.timing(widthAnim, {
-      toValue: isActive ? 1 : 0,
-      duration: 250,
-      useNativeDriver: false,
-    }).start();
-  }, [isActive]);
-
-  const pillWidth = widthAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 100] });
-  const textOpacity = widthAnim.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0, 1] });
-
-  return (
-    <TouchableOpacity activeOpacity={0.8} onPress={onPress} onLayout={onLayout} style={styles.tabItem}>
-      {isActive ? (
-        <Animated.View style={[styles.pill, { width: pillWidth }]}>
-          <Icon size={20} color="#0083CA" />
-          <Animated.Text numberOfLines={1} style={[styles.tabLabel, { opacity: textOpacity }]}>
-            {label}
-          </Animated.Text>
-        </Animated.View>
-      ) : (
-        <View style={styles.inactiveTabContent}>
-          <Icon size={20} color="#94A3B8" />
-          {badge && <View style={styles.badge} />}
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-}
-
-export default function HomeScreen() {
-  const navigation = useNavigation();
-  const insets = useSafeAreaInsets();
-  const [userName, setUserName] = useState('Mehmon');
-  const [userInitials, setUserInitials] = useState('M');
-  const [activeFilter, setActiveFilter] = useState(FILTERS[0]);
-  const [activeTab, setActiveTab] = useState('Bosh sahifa');
-  const [selectedTab, setSelectedTab] = useState('Bosh sahifa');
-  const [profileVisible, setProfileVisible] = useState(false);
-  const [tabCenters, setTabCenters] = useState({});
-  const previousTab = useRef('Bosh sahifa');
-  const indicatorX = useRef(new Animated.Value(0)).current;
-
-  const [clinics, setClinics] = useState([]);
-  const [loadingClinics, setLoadingClinics] = useState(true);
-  const [refreshingClinics, setRefreshingClinics] = useState(false);
-  const [clinicsError, setClinicsError] = useState(null);
-
-  const fetchClinics = async (isRefresh = false) => {
-    if (isRefresh) setRefreshingClinics(true);
-    else setLoadingClinics(true);
-    setClinicsError(null);
-    try {
-      const response = await apiFetch('/clinics/');
-      if (!response.ok) {
-        throw new Error(`Klinikalarni yuklashda xatolik yuz berdi (${response.status})`);
-      }
-      const data = await response.json();
-      setClinics(Array.isArray(data) ? data : []);
-    } catch (error) {
-      setClinicsError(error.message || "Ulanishda xatolik yuz berdi");
-    } finally {
-      if (isRefresh) setRefreshingClinics(false);
-      else setLoadingClinics(false);
-    }
-  };
-
-  useFocusEffect(
-    useCallback(() => {
-      checkToken();
+    if (visible) {
       loadUserData();
-      fetchClinics();
-    }, [navigation]),
-  );
-
-  const checkToken = async () => {
-    const token = await AsyncStorage.getItem('token');
-    if (!token) {
-      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+      setSnapState('HALF');
+      Animated.parallel([
+        Animated.spring(translateY, {
+          toValue: SNAP_HALF,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 0.4,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      translateY.setValue(SNAP_CLOSED);
+      backdropOpacity.setValue(0);
     }
-  };
+  }, [visible]);
 
   const loadUserData = async () => {
     try {
       const storedUser = await AsyncStorage.getItem('user');
       if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        const firstName = parsedUser.ism || parsedUser.firstName || parsedUser.name || '';
-        const lastName = parsedUser.familiya || parsedUser.lastName || '';
-        if (firstName || lastName) {
-          setUserName(`${firstName} ${lastName}`.trim());
-          const firstLetter = firstName ? firstName[0].toUpperCase() : '';
-          const lastLetter = lastName ? lastName[0].toUpperCase() : '';
-          setUserInitials(`${firstLetter}${lastLetter}` || 'M');
-        }
+        const parsed = JSON.parse(storedUser);
+        const firstName = parsed.ism || parsed.firstName || parsed.name || '';
+        const lastName = parsed.familiya || parsed.lastName || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        setProfileData({
+          name: fullName || 'Foydalanuvchi',
+          role: parsed.role || 'patient',
+          phone: parsed.telefon || parsed.phone || 'Kiritilmagan',
+          joinDate: parsed.created_at
+            ? new Date(parsed.created_at).toLocaleDateString('uz-UZ', {
+                year: 'numeric',
+                month: 'long',
+              })
+            : "Noma'lum",
+        });
       }
-    } catch (e) {}
-  };
-
-  const recordTabLayout = (tabName, event) => {
-    const { x, width } = event.nativeEvent.layout;
-    setTabCenters((current) => ({ ...current, [tabName]: x + width / 2 }));
-  };
-
-  useEffect(() => {
-    const center = tabCenters[selectedTab];
-    if (center == null) return;
-    Animated.spring(indicatorX, {
-      toValue: center - 9,
-      useNativeDriver: true,
-      tension: 60,
-      friction: 10,
-    }).start();
-  }, [selectedTab, tabCenters, indicatorX]);
-
-  const handleTabPress = (tabName) => {
-    setSelectedTab(tabName);
-    if (tabName === 'Profil') {
-      previousTab.current = activeTab;
-      setProfileVisible(true);
-      return;
+    } catch (e) {
+      console.log("Profil ma'lumotini o'qishda xato:", e);
     }
-    setActiveTab(tabName);
   };
 
-  const handleProfileClose = () => {
-    setProfileVisible(false);
-    setSelectedTab(previousTab.current);
+  // Ma'lumotlarni prop yoki AsyncStorage dan olingan state orqali ustunlik bo'yicha aniqlash
+  const displayName = user?.name || profileData.name || 'Foydalanuvchi';
+  const displayRole = user?.role || profileData.role;
+  const displayPhone = userPhone || profileData.phone || 'Kiritilmagan';
+  const displayJoinDate = userJoinDate || profileData.joinDate || "Noma'lum";
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: SNAP_CLOSED,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
+    });
   };
+
+  const currentSnapState = useRef(snapState);
+  currentSnapState.current = snapState;
+
+  const scrollOffsetRef = useRef(scrollOffset);
+  scrollOffsetRef.current = scrollOffset;
+
+  // Bitta bosishdayoq birnoiz tutib olish uchun PanResponder
+  const panResponder = useRef(
+    PanResponder.create({
+      // Birinchi bosilgandayoq harakatni darhol qabul qilish
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => false,
+
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        const { dy } = gestureState;
+        const isHalf = currentSnapState.current === 'HALF';
+
+        if (isHalf) return true;
+        if (!isHalf && scrollOffsetRef.current <= 0 && dy > 0) return true;
+
+        return false;
+      },
+
+      onPanResponderGrant: () => {
+        translateY.extractOffset();
+      },
+
+      onPanResponderMove: (_, gestureState) => {
+        translateY.setValue(gestureState.dy);
+      },
+
+      onPanResponderRelease: (_, gestureState) => {
+        translateY.flattenOffset();
+        const { dy, vy } = gestureState;
+        const isHalf = currentSnapState.current === 'HALF';
+
+        if (isHalf) {
+          if (dy < -40 || vy < -0.2) {
+            setSnapState('FULL');
+            Animated.spring(translateY, {
+              toValue: SNAP_FULL,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
+          } else if (dy > 60 || vy > 0.3) {
+            handleClose();
+          } else {
+            Animated.spring(translateY, {
+              toValue: SNAP_HALF,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
+          }
+        } else {
+          if (dy > 60 || vy > 0.3) {
+            setSnapState('HALF');
+            Animated.spring(translateY, {
+              toValue: SNAP_HALF,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
+          } else {
+            Animated.spring(translateY, {
+              toValue: SNAP_FULL,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
+          }
+        }
+      },
+    })
+  ).current;
+
+  const getInitials = (name) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.multiRemove(['token', 'user', 'role']);
+      handleClose();
+      resetRoot('Login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  if (!visible) return null;
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent />
+    <Modal
+      animationType="none"
+      transparent={true}
+      visible={visible}
+      onRequestClose={handleClose}
+    >
+      <View style={styles.overlayContainer}>
+        <TouchableWithoutFeedback onPress={handleClose}>
+          <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+        </TouchableWithoutFeedback>
 
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <View style={styles.profileSection}>
-          <View>
-            <Text style={styles.greetingText}>Xayrli kun</Text>
-            <Text style={styles.userNameText}>{userName}</Text>
-          </View>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{userInitials}</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity activeOpacity={0.8} style={styles.searchContainer}>
-          <Search color="#94A3B8" size={20} style={styles.searchIcon} />
-          <Text style={styles.searchPlaceholder}>Klinika yoki xizmat qidirish</Text>
-        </TouchableOpacity>
-      </View>
-
-      {activeTab === 'Bosh sahifa' ? (
-        <ScrollView
-          style={styles.contentArea}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 30 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshingClinics}
-              onRefresh={() => fetchClinics(true)}
-              tintColor="#0083CA"
-              colors={['#0083CA']}
-            />
-          }
-        >
-          <View style={styles.filtersSection}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScrollContent}>
-              {FILTERS.map((filter) => {
-                const isActive = activeFilter === filter;
-                return (
-                  <TouchableOpacity
-                    key={filter}
-                    activeOpacity={0.7}
-                    onPress={() => setActiveFilter(filter)}
-                    style={[styles.filterChip, isActive && styles.filterChipActive]}
-                  >
-                    <Text style={[styles.filterText, isActive && styles.filterTextActive]}>{filter}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-
-          <View style={styles.clinicsSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Klinikalar</Text>
-              <TouchableOpacity style={styles.seeAllButton}>
-                <Text style={styles.seeAllText}>Barchasi</Text>
-                <ChevronRight color="#0083CA" size={16} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.cardsList}>
-              {loadingClinics ? (
-                <View style={styles.statusContainer}>
-                  <ActivityIndicator size="large" color="#0083CA" />
-                  <Text style={styles.statusText}>Klinikalar yuklanmoqda...</Text>
-                </View>
-              ) : clinicsError ? (
-                <View style={styles.statusContainer}>
-                  <Text style={styles.errorText}>{clinicsError}</Text>
-                  <TouchableOpacity style={styles.retryButton} onPress={() => fetchClinics()}>
-                    <Text style={styles.retryButtonText}>Qayta urinish</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : clinics.length === 0 ? (
-                <View style={styles.statusContainer}>
-                  <Text style={styles.statusText}>Hozircha klinikalar mavjud emas</Text>
-                </View>
-              ) : (
-                clinics.map((clinic) => {
-                  const bannerUrl = clinic.banner_url || clinic.logo_url;
-                  const smallLogoUrl = clinic.logo_url || clinic.avatar_url || clinic.logo_small_url;
-
-                  return (
-                    <View key={clinic.id || clinic.name} style={styles.clinicCard}>
-                      <View style={styles.bannerContainer}>
-                        {bannerUrl ? (
-                          <Image source={{ uri: bannerUrl }} style={styles.cardImagePlaceholder} resizeMode="cover" />
-                        ) : (
-                          <View style={[styles.cardImagePlaceholder, { backgroundColor: '#E0F2FE' }]} />
-                        )}
-                        <View style={styles.smallLogoWrapper}>
-                          {smallLogoUrl ? (
-                            <Image source={{ uri: smallLogoUrl }} style={styles.smallLogoImage} resizeMode="cover" />
-                          ) : (
-                            <View style={styles.smallLogoFallback}>
-                              <Text style={styles.smallLogoText}>
-                                {clinic.name ? clinic.name[0].toUpperCase() : 'K'}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-
-                      <View style={styles.cardContent}>
-                        <Text style={styles.tagText}>{clinic.tag}</Text>
-                        <Text style={styles.clinicName}>{clinic.name}</Text>
-                        <Text style={styles.descriptionText} numberOfLines={2}>{clinic.description}</Text>
-                        <View style={styles.divider} />
-                        <View style={styles.cardFooter}>
-                          <Text style={styles.footerInfoText}>⭐ {clinic.rating}  ·  {clinic.address}</Text>
-                          <TouchableOpacity activeOpacity={0.8} style={styles.actionButton}>
-                            <Text style={styles.actionButtonText}>+ Ko'rish</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          </View>
-        </ScrollView>
-      ) : activeTab === 'Qabullar' ? (
-        <View style={styles.placeholderContainer}>
-          <Calendar color="#CBD5E1" size={48} />
-          <Text style={styles.placeholderText}>Qabullar - Tez orada</Text>
-        </View>
-      ) : activeTab === 'Xabarlar' ? (
-        <View style={styles.placeholderContainer}>
-          <MessageCircle color="#CBD5E1" size={48} />
-          <Text style={styles.placeholderText}>Xabarlar - Tez orada</Text>
-        </View>
-      ) : (
-        <View style={styles.placeholderContainer}>
-          <Text style={styles.placeholderText}>Tez orada</Text>
-        </View>
-      )}
-
-      {/* PASTKI NAVBAR - shu faylning o'zida, o'zgarishsiz */}
-      <View style={[styles.navbar, { paddingBottom: Math.max(insets.bottom, 12), paddingTop: 12 }]}>
-        <TabButton
-          icon={Home}
-          label="Bosh"
-          isActive={selectedTab === 'Bosh sahifa'}
-          onLayout={(event) => recordTabLayout('Bosh sahifa', event)}
-          onPress={() => handleTabPress('Bosh sahifa')}
-        />
-        <TabButton
-          icon={Calendar}
-          label="Qabullar"
-          isActive={selectedTab === 'Qabullar'}
-          onLayout={(event) => recordTabLayout('Qabullar', event)}
-          onPress={() => handleTabPress('Qabullar')}
-          badge
-        />
-        <TabButton
-          icon={MessageCircle}
-          label="Xabarlar"
-          isActive={selectedTab === 'Xabarlar'}
-          onLayout={(event) => recordTabLayout('Xabarlar', event)}
-          onPress={() => handleTabPress('Xabarlar')}
-        />
-        <TabButton
-          icon={User}
-          label="Profil"
-          isActive={selectedTab === 'Profil'}
-          onLayout={(event) => recordTabLayout('Profil', event)}
-          onPress={() => handleTabPress('Profil')}
-        />
         <Animated.View
-          pointerEvents="none"
           style={[
-            styles.activeIndicator,
-            {
-              bottom: Math.max(insets.bottom, 12) - 5,
-              transform: [{ translateX: indicatorX }],
-            },
+            styles.sheetContainer,
+            { transform: [{ translateY }] },
           ]}
-        />
-      </View>
+          {...panResponder.panHandlers}
+        >
+          {/* Tepadagi kichik tutqich */}
+          <View style={styles.dragHandleZone}>
+            <View style={styles.dragHandle} />
+          </View>
 
-      <ProfileModal
-        visible={profileVisible}
-        onClose={handleProfileClose}
-        userName={userName}
-        userInitials={userInitials}
-      />
-    </View>
+          {/* Sarlavha (Header) */}
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Profil</Text>
+            <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <X size={20} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            scrollEnabled={snapState === 'FULL'}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            onScroll={(e) => setScrollOffset(e.nativeEvent.contentOffset.y)}
+            scrollEventThrottle={16}
+          >
+            {/* Profil karta */}
+            <View style={styles.profileCard}>
+              <View style={styles.avatarContainer}>
+                <Text style={styles.avatarText}>{getInitials(displayName)}</Text>
+              </View>
+              <View style={styles.userInfo}>
+                <Text style={styles.userName}>{displayName}</Text>
+                <Text style={styles.userRole}>
+                  {displayRole === 'doctor' ? 'Shifokor' : 'Bemor'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Statistika */}
+            <View style={styles.statsRow}>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>12</Text>
+                <Text style={styles.statLabel}>Qabullar</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>3</Text>
+                <Text style={styles.statLabel}>Klinikalar</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>4.8</Text>
+                <Text style={styles.statLabel}>Reyting</Text>
+              </View>
+            </View>
+
+            {/* Shaxsiy Ma'lumotlar */}
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionHeaderTitle}>SHAXSIY MA'LUMOTLAR</Text>
+              <View style={styles.infoCard}>
+                <View style={styles.infoRow}>
+                  <View style={styles.iconCircle}>
+                    <Phone size={18} color="#0083CA" />
+                  </View>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={styles.infoLabel}>Telefon raqam</Text>
+                    <Text style={styles.infoValue}>{displayPhone}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.infoRow}>
+                  <View style={styles.iconCircle}>
+                    <Calendar size={18} color="#0083CA" />
+                  </View>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={styles.infoLabel}>A'zo bo'lgan sana</Text>
+                    <Text style={styles.infoValue}>{displayJoinDate}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Sozlamalar */}
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionHeaderTitle}>SOZLAMALAR</Text>
+              <View style={styles.infoCard}>
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLeft}>
+                    <View style={styles.iconCircle}>
+                      <Moon size={18} color="#0083CA" />
+                    </View>
+                    <Text style={styles.switchLabel}>Qorong'i rejim</Text>
+                  </View>
+                  <Switch
+                    value={darkMode}
+                    onValueChange={setDarkMode}
+                    trackColor={{ false: '#E2E8F0', true: '#0083CA' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLeft}>
+                    <View style={styles.iconCircle}>
+                      <Bell size={18} color="#0083CA" />
+                    </View>
+                    <Text style={styles.switchLabel}>Bildirishnomalar</Text>
+                  </View>
+                  <Switch
+                    value={notificationsEnabled}
+                    onValueChange={setNotificationsEnabled}
+                    trackColor={{ false: '#E2E8F0', true: '#0083CA' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Menyu */}
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionHeaderTitle}>HISOB</Text>
+              <View style={styles.menuCard}>
+                <TouchableOpacity style={styles.menuItem}>
+                  <View style={styles.menuLeft}>
+                    <User size={20} color="#0083CA" />
+                    <Text style={styles.menuItemText}>Profilni tahrirlash</Text>
+                  </View>
+                  <ChevronRight size={18} color="#94A3B8" />
+                </TouchableOpacity>
+
+                <View style={styles.divider} />
+
+                <TouchableOpacity style={styles.menuItem}>
+                  <View style={styles.menuLeft}>
+                    <CalendarCheck size={20} color="#0083CA" />
+                    <Text style={styles.menuItemText}>Mening qabullarim</Text>
+                  </View>
+                  <ChevronRight size={18} color="#94A3B8" />
+                </TouchableOpacity>
+
+                <View style={styles.divider} />
+
+                <TouchableOpacity style={styles.menuItem}>
+                  <View style={styles.menuLeft}>
+                    <Settings size={20} color="#0083CA" />
+                    <Text style={styles.menuItemText}>Sozlamalar</Text>
+                  </View>
+                  <ChevronRight size={18} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Chiqish tugmasi */}
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <LogOut size={20} color="#EF4444" />
+              <Text style={styles.logoutText}>Chiqish</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </Animated.View>
+      </View>
+    </Modal>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  header: {
+  overlayContainer: {
+    flex: 1,
+    justify: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000000',
+  },
+  sheetContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: SCREEN_HEIGHT,
     backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingHorizontal: 20,
     paddingBottom: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    // Webda matnlarni belgilash va sichqoncha ikkilanib qolishining oldini oladi:
+    userSelect: 'none',
   },
-  profileSection: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
-  greetingText: { color: '#64748B', fontSize: 13 },
-  userNameText: { color: '#0F172A', fontSize: 20, fontWeight: '700', marginTop: 2 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0083CA', justifyContent: 'center', alignItems: 'center' },
-  avatarText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
-  searchIcon: { marginRight: 10 },
-  searchPlaceholder: { color: '#94A3B8', fontSize: 14 },
-  contentArea: { flex: 1 },
-  filtersSection: { marginTop: 18 },
-  filtersScrollContent: { paddingHorizontal: 20, gap: 8 },
-  filterChip: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0' },
-  filterChipActive: { backgroundColor: '#0083CA', borderColor: '#0083CA' },
-  filterText: { color: '#64748B', fontSize: 13, fontWeight: '500' },
-  filterTextActive: { color: '#FFFFFF', fontWeight: '600' },
-  clinicsSection: { marginTop: 24, paddingHorizontal: 20 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  sectionTitle: { color: '#0F172A', fontSize: 18, fontWeight: '700' },
-  seeAllButton: { flexDirection: 'row', alignItems: 'center' },
-  seeAllText: { color: '#0083CA', fontSize: 14, fontWeight: '600' },
-  statusContainer: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center' },
-  statusText: { color: '#64748B', fontSize: 14, marginTop: 10, textAlign: 'center' },
-  errorText: { color: '#EF4444', fontSize: 14, marginBottom: 12, textAlign: 'center' },
-  retryButton: { backgroundColor: '#0083CA', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
-  retryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
-  cardsList: { flexDirection: 'column' },
-  clinicCard: { backgroundColor: '#FFFFFF', borderRadius: 20, marginBottom: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#F1F5F9' },
-  bannerContainer: { position: 'relative', width: '100%', height: 160 },
-  cardImagePlaceholder: { width: '100%', height: '100%', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
-  smallLogoWrapper: { position: 'absolute', bottom: -24, left: 16, width: 52, height: 52, borderRadius: 26, borderWidth: 3, borderColor: '#FFFFFF', overflow: 'hidden', zIndex: 10, elevation: 3 },
-  smallLogoImage: { width: '100%', height: '100%' },
-  smallLogoFallback: { width: '100%', height: '100%', backgroundColor: '#0083CA', justifyContent: 'center', alignItems: 'center' },
-  smallLogoText: { color: '#FFFFFF', fontSize: 20, fontWeight: '700' },
-  cardContent: { padding: 18, paddingTop: 32 },
-  tagText: { color: '#0083CA', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 6, textTransform: 'uppercase' },
-  clinicName: { color: '#0F172A', fontSize: 20, fontWeight: '700', marginBottom: 6 },
-  descriptionText: { color: '#64748B', fontSize: 13, lineHeight: 18, marginBottom: 14 },
-  divider: { height: 1, backgroundColor: '#F1F5F9', marginBottom: 14 },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  footerInfoText: { color: '#475569', fontSize: 13, fontWeight: '500' },
-  actionButton: { backgroundColor: '#E0F2FE', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
-  actionButtonText: { color: '#0083CA', fontSize: 13, fontWeight: '700' },
-  placeholderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  placeholderText: { color: '#94A3B8', fontSize: 16 },
-  navbar: {
-    position: 'relative',
+  dragHandleZone: {
+    width: '100%',
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'grab',
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  scrollContent: {
+    paddingBottom: 60,
+  },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 16,
+  },
+  avatarContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#0083CA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  userInfo: {
+    marginLeft: 12,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  userRole: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statNumber: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0083CA',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  sectionContainer: {
+    marginBottom: 20,
+  },
+  sectionHeaderTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
+    letterSpacing: 1,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  infoCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoTextContainer: {
+    marginLeft: 12,
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginTop: 1,
+  },
+  switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    paddingVertical: 8,
   },
-  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  inactiveTabContent: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
-  pill: {
+  switchLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  switchLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginLeft: 12,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+  },
+  menuCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    paddingHorizontal: 14,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+  },
+  menuLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  menuItemText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1E293B',
+    marginLeft: 12,
+  },
+  logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E0F2FE',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    overflow: 'hidden',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 4,
   },
-  tabLabel: { color: '#0083CA', fontSize: 12, fontWeight: '700', marginLeft: 6 },
-  badge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#0083CA',
-  },
-  activeIndicator: {
-    position: 'absolute',
-    left: 0,
-    width: 18,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: '#EF9F27',
+  logoutText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#EF4444',
+    marginLeft: 8,
   },
 });
+
+export default ProfileModal;

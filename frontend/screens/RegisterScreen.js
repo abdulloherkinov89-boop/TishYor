@@ -15,6 +15,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
+import { resetRoot } from '../RootNavigation';
 
 const PHONE_PREFIX = '+998 ';
 
@@ -82,6 +83,7 @@ const RegisterScreen = () => {
     setErrorMessage('');
 
     try {
+      console.log("So'rov yuborilmoqda...");
       const response = await apiFetch('/auth/register', {
         method: 'POST',
         headers: {
@@ -94,8 +96,10 @@ const RegisterScreen = () => {
           role: 'patient',
         }),
       });
+      console.log('Javob keldi, status:', response.status);
 
       const data = await response.json().catch(() => ({}));
+      console.log('REGISTER: javob o‘qildi; token/user:', Boolean(data.access_token), Boolean(data.user));
 
       if (response.ok) {
         if (!data.access_token || !data.user) {
@@ -103,19 +107,25 @@ const RegisterScreen = () => {
         }
 
         const role = data.user.role || 'patient';
+        console.log('REGISTER: sessiya saqlanmoqda...');
         await AsyncStorage.multiSet([
           ['token', data.access_token],
           ['user', JSON.stringify({ ...data.user, role })],
           ['role', role],
         ]);
-        navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+        console.log('REGISTER: sessiya saqlandi, Welcome sahifasiga o‘tilmoqda...');
+        const nextScreen = role === 'clinic' ? 'ClinicHome' : 'Welcome';
+        console.log('REGISTER: root sahifaga o‘tish:', nextScreen);
+        resetRoot(nextScreen);
       } else {
         setErrorMessage(
           data.detail || "Ro'yxatdan o'tishda xatolik yuz berdi"
         );
       }
     } catch (error) {
-      setErrorMessage(error.message || "Serverga ulanishda xatolik yuz berdi");
+      console.log('REGISTER ERROR:', error);
+      console.log('ERROR MESSAGE:', error.message);
+      setErrorMessage('Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
     }

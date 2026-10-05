@@ -15,32 +15,82 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
+import { resetRoot } from '../RootNavigation';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
-  const [telefon, setTelefon] = useState('');
+  const [telefon, setTelefon] = useState('+998 ');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isFocused, setIsFocused] = useState(false);
 
+  // Telefon raqamini O'zbekiston formati boyicha shakllantirish (+998 (XX) XXX-XX-XX)
+  const formatPhoneNumber = (text) => {
+    // Faqat raqamlarni ajratib olamiz
+    const cleaned = text.replace(/\D/g, '');
+
+    // Agar foydalanuvchi barchasini o'chirib tashlasa ham +998 saqlanadi
+    if (cleaned.length <= 3) {
+      return '+998 ';
+    }
+
+    // 998 dan keyingi raqamlar
+    const number = cleaned.startsWith('998') ? cleaned.slice(3) : cleaned;
+    const limitedNumber = number.slice(0, 9); // Maksimal 9 ta raqam (kodsiz)
+
+    let formatted = '+998 ';
+
+    if (limitedNumber.length > 0) {
+      formatted += `(${limitedNumber.slice(0, 2)}`;
+    }
+    if (limitedNumber.length >= 2) {
+      formatted += `) `;
+    }
+    if (limitedNumber.length > 2) {
+      formatted += `${limitedNumber.slice(2, 5)}`;
+    }
+    if (limitedNumber.length >= 5) {
+      formatted += `-${limitedNumber.slice(5, 7)}`;
+    }
+    if (limitedNumber.length >= 7) {
+      formatted += `-${limitedNumber.slice(7, 9)}`;
+    }
+
+    return formatted;
+  };
+
+  const handlePhoneChange = (text) => {
+    const formatted = formatPhoneNumber(text);
+    setTelefon(formatted);
+    if (errorMessage) setErrorMessage('');
+  };
+
   const handleLogin = async () => {
-    if (!telefon.trim()) {
-      setErrorMessage('Iltimos, telefon raqamingizni kiriting');
+    // Serverga yuborish uchun toza raqam formatini olamiz: +998901234567
+    const rawDigits = telefon.replace(/\D/g, '');
+    
+    if (rawDigits.length < 12) {
+      setErrorMessage('Iltimos, telefon raqamingizni to\'liq kiriting');
       return;
     }
+
+    const cleanPhone = `+${rawDigits}`;
 
     setLoading(true);
     setErrorMessage('');
 
     try {
+      console.log('LOGIN: so‘rov yuborilmoqda...');
       const response = await apiFetch('/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ telefon: telefon.trim() }),
+        body: JSON.stringify({ telefon: cleanPhone }),
       });
+      console.log('LOGIN: javob keldi, status:', response.status);
       const data = await response.json().catch(() => ({}));
+      console.log('LOGIN: javob o‘qildi; token/user:', Boolean(data.access_token), Boolean(data.user));
 
       if (response.ok) {
         if (!data.access_token || !data.user) {
@@ -48,19 +98,22 @@ const LoginScreen = () => {
         }
 
         const role = data.user.role || 'patient';
+        console.log('LOGIN: sessiya saqlanmoqda...');
         await AsyncStorage.multiSet([
           ['token', data.access_token],
           ['user', JSON.stringify({ ...data.user, role })],
           ['role', role],
         ]);
-        navigation.reset({
-          index: 0,
-          routes: [{ name: role === 'clinic' ? 'ClinicHome' : 'Welcome' }],
-        });
+        console.log('LOGIN: sessiya saqlandi, sahifaga o‘tilmoqda...');
+        const nextScreen = role === 'clinic' ? 'ClinicHome' : 'Welcome';
+        console.log('LOGIN: root sahifaga o‘tish:', nextScreen);
+        resetRoot(nextScreen);
       } else {
         setErrorMessage(data.detail || 'Kirishda xatolik yuz berdi');
       }
     } catch (error) {
+      console.log('LOGIN ERROR:', error);
+      console.log('LOGIN ERROR MESSAGE:', error.message);
       setErrorMessage(error.message || 'Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
@@ -94,15 +147,16 @@ const LoginScreen = () => {
                   isFocused && styles.inputFocused,
                   errorMessage ? styles.inputError : null,
                 ]}
-                placeholder="+998901234567"
+                placeholder="+998 (90) 123-45-67"
                 placeholderTextColor="#94A3B8"
                 keyboardType="phone-pad"
                 value={telefon}
-                onChangeText={setTelefon}
+                onChangeText={handlePhoneChange}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
                 autoComplete="tel"
                 textContentType="telephoneNumber"
+                maxLength={19} // Noto'g'ri ortiqcha belgi kiritishni cheklash
               />
             </View>
 

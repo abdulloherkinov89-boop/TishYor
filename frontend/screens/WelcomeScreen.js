@@ -13,10 +13,11 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, ChevronRight, Home, Calendar, MessageCircle, User } from 'lucide-react-native';
+import { Search, ChevronRight, Home, MessageCircle, User, Users } from 'lucide-react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { apiFetch } from '../utils/api';
 import ProfileModal from '../components/ProfileModal';
+import ClinicDetailModal from '../components/ClinicDetailModal';
 
 const FILTERS = [
   "Yaqin klinikalar",
@@ -76,6 +77,10 @@ export default function HomeScreen() {
   const [tabCenters, setTabCenters] = useState({});
   const previousTab = useRef('Bosh sahifa');
   const indicatorX = useRef(new Animated.Value(0)).current;
+
+  // Klinikalar detal modali uchun state'lar
+  const [selectedClinic, setSelectedClinic] = useState(null);
+  const [clinicDetailVisible, setClinicDetailVisible] = useState(false);
 
   // State'lar
   const [clinics, setClinics] = useState([]);
@@ -296,8 +301,27 @@ export default function HomeScreen() {
                         <Text style={styles.descriptionText} numberOfLines={2}>{clinic.description}</Text>
                         <View style={styles.divider} />
                         <View style={styles.cardFooter}>
-                          <Text style={styles.footerInfoText}>⭐ {clinic.rating}  ·  {clinic.address}</Text>
-                          <TouchableOpacity activeOpacity={0.8} style={styles.actionButton}>
+                          <View style={{ flex: 1, marginRight: 8 }}>
+                            <Text style={styles.footerInfoText} numberOfLines={1}>
+                              ⭐ {clinic.rating}  ·  {clinic.address}
+                            </Text>
+                            {clinic.patients_served !== undefined && (
+                              <View style={styles.patientsCountRow}>
+                                <Users size={12} color="#64748B" style={{ marginRight: 4 }} />
+                                <Text style={styles.patientsCountText}>
+                                  {clinic.patients_served} ta bemor
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <TouchableOpacity 
+                            activeOpacity={0.8} 
+                            style={styles.actionButton}
+                            onPress={() => {
+                              setSelectedClinic(clinic);
+                              setClinicDetailVisible(true);
+                            }}
+                          >
                             <Text style={styles.actionButtonText}>+ Ko'rish</Text>
                           </TouchableOpacity>
                         </View>
@@ -323,14 +347,6 @@ export default function HomeScreen() {
           isActive={selectedTab === 'Bosh sahifa'}
           onLayout={(event) => recordTabLayout('Bosh sahifa', event)}
           onPress={() => handleTabPress('Bosh sahifa')}
-        />
-        <TabButton
-          icon={Calendar}
-          label="Qabullar"
-          isActive={selectedTab === 'Qabullar'}
-          onLayout={(event) => recordTabLayout('Qabullar', event)}
-          onPress={() => handleTabPress('Qabullar')}
-          badge
         />
         <TabButton
           icon={MessageCircle}
@@ -363,6 +379,12 @@ export default function HomeScreen() {
         onClose={handleProfileClose}
         userName={userName}
         userInitials={userInitials}
+      />
+
+      <ClinicDetailModal
+        visible={clinicDetailVisible}
+        onClose={() => setClinicDetailVisible(false)}
+        clinic={selectedClinic}
       />
     </View>
   );
@@ -598,6 +620,16 @@ const styles = StyleSheet.create({
     color: '#475569', 
     fontSize: 13, 
     fontWeight: '500' 
+  },
+  patientsCountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
+  patientsCountText: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '500',
   },
   actionButton: { 
     backgroundColor: '#E0F2FE', 

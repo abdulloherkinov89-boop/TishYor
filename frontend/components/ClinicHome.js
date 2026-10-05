@@ -20,41 +20,15 @@ import {
   Clock,
   Users,
   Star,
-  Calendar,
   Stethoscope,
   Briefcase,
   Settings,
   MessageSquare,
-  ChevronRight,
   Home,
   User,
   AlertCircle,
 } from 'lucide-react-native';
 import { apiFetch } from '../utils/api';
-
-const MOCK_APPOINTMENTS = [
-  {
-    id: '1',
-    patientName: 'Ali Valiyev',
-    time: '09:00',
-    service: 'Tish tozalash',
-    status: 'Tasdiqlangan',
-  },
-  {
-    id: '2',
-    patientName: 'Sardor Qodirov',
-    time: '11:30',
-    service: 'Karrion plombalash',
-    status: 'Kutilmoqda',
-  },
-  {
-    id: '3',
-    patientName: 'Malika Ikromova',
-    time: '15:00',
-    service: 'Konsultatsiya',
-    status: 'Tasdiqlangan',
-  },
-];
 
 // --- PASTKI NAVBAR TUGMASI (Animatsiyali) ---
 function TabButton({ icon: Icon, label, isActive, onPress }) {
@@ -96,11 +70,11 @@ function TabButton({ icon: Icon, label, isActive, onPress }) {
   );
 }
 
-export default function ClinicHome({ navigation }) {
+export default function ClinicHome({ navigation, route }) {
   const insets = useSafeAreaInsets();
 
-  const [clinic, setClinic] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [clinic, setClinic] = useState(route?.params?.clinic || null);
+  const [loading, setLoading] = useState(!route?.params?.clinic);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('Bosh sahifa');
 
@@ -112,7 +86,7 @@ export default function ClinicHome({ navigation }) {
   const fetchClinicData = async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
-    } else {
+    } else if (!clinic) {
       setLoading(true);
     }
 
@@ -270,14 +244,6 @@ export default function ClinicHome({ navigation }) {
           {/* 3. STATS ROW (3 ta Card) */}
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <View style={[styles.statIconBox, { backgroundColor: '#E0F2FE' }]}>
-                <Calendar color="#0083CA" size={18} />
-              </View>
-              <Text style={styles.statValue}>8</Text>
-              <Text style={styles.statLabel}>Bugungi qabullar</Text>
-            </View>
-
-            <View style={styles.statCard}>
               <View style={[styles.statIconBox, { backgroundColor: '#F0FDF4' }]}>
                 <Users color="#16A34A" size={18} />
               </View>
@@ -297,18 +263,6 @@ export default function ClinicHome({ navigation }) {
           {/* 4. QUICK ACTIONS GRID (2x3) */}
           <Text style={styles.sectionTitle}>Tezkor bo'limlar</Text>
           <View style={[styles.gridContainer, isActionsDisabled && styles.disabledContainer]}>
-            <TouchableOpacity
-              style={styles.gridCard}
-              activeOpacity={0.7}
-              disabled={isActionsDisabled}
-              onPress={() => navigation.navigate('Appointments')}
-            >
-              <View style={styles.gridIconWrapper}>
-                <Calendar color="#0083CA" size={22} />
-              </View>
-              <Text style={styles.gridTitle}>Qabullar</Text>
-            </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.gridCard}
               activeOpacity={0.7}
@@ -370,42 +324,6 @@ export default function ClinicHome({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          {/* 5. BUGUNGI QABULLAR RO'YXATI */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Bugungi qabullar</Text>
-            <TouchableOpacity style={styles.seeAllBtn} disabled={isActionsDisabled}>
-              <Text style={styles.seeAllText}>Barchasi</Text>
-              <ChevronRight color="#0083CA" size={16} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={[styles.appointmentsList, isActionsDisabled && styles.disabledContainer]}>
-            {MOCK_APPOINTMENTS.map((item) => (
-              <View key={item.id} style={styles.appointmentCard}>
-                <View style={styles.timeBadge}>
-                  <Clock color="#0083CA" size={14} />
-                  <Text style={styles.timeText}>{item.time}</Text>
-                </View>
-
-                <View style={styles.appointmentInfo}>
-                  <Text style={styles.patientName}>{item.patientName}</Text>
-                  <Text style={styles.serviceText}>{item.service}</Text>
-                </View>
-
-                <View style={[
-                  styles.appStatusTag,
-                  item.status === 'Tasdiqlangan' ? styles.appStatusApproved : styles.appStatusPending
-                ]}>
-                  <Text style={[
-                    styles.appStatusText,
-                    item.status === 'Tasdiqlangan' ? styles.appStatusTextApproved : styles.appStatusTextPending
-                  ]}>
-                    {item.status}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
         </Animated.View>
       </ScrollView>
 
@@ -416,12 +334,6 @@ export default function ClinicHome({ navigation }) {
           label="Bosh"
           isActive={activeTab === 'Bosh sahifa'}
           onPress={() => setActiveTab('Bosh sahifa')}
-        />
-        <TabButton
-          icon={Calendar}
-          label="Qabullar"
-          isActive={activeTab === 'Qabullar'}
-          onPress={() => setActiveTab('Qabullar')}
         />
         <TabButton
           icon={MessageSquare}
@@ -610,22 +522,6 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     marginBottom: 14,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  seeAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  seeAllText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#0083CA',
-  },
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -659,67 +555,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0F172A',
     textAlign: 'center',
-  },
-  appointmentsList: {
-    gap: 10,
-  },
-  appointmentCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#BAE6FD',
-  },
-  timeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E0F2FE',
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 10,
-    marginRight: 12,
-  },
-  timeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#0083CA',
-    marginLeft: 4,
-  },
-  appointmentInfo: {
-    flex: 1,
-  },
-  patientName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0F172A',
-  },
-  serviceText: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  appStatusTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  appStatusApproved: {
-    backgroundColor: '#DCFCE7',
-  },
-  appStatusPending: {
-    backgroundColor: '#FEF3C7',
-  },
-  appStatusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  appStatusTextApproved: {
-    color: '#15803D',
-  },
-  appStatusTextPending: {
-    color: '#B45309',
   },
   navbar: {
     flexDirection: 'row',

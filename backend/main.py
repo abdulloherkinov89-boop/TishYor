@@ -12,19 +12,21 @@ Base.metadata.create_all(bind=engine)
 migrate_clinic_schema()
 
 app = FastAPI(title="TishYor API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 uploads_directory = Path(__file__).resolve().parent / "uploads"
 uploads_directory.mkdir(parents=True, exist_ok=True)
 app.mount(
     "/uploads",
     StaticFiles(directory=str(uploads_directory)),
     name="uploads",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 app.include_router(clinics.router)

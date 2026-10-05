@@ -1,13 +1,12 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { User, Home, Calendar, Star, Settings, Info } from 'lucide-react-native';
+import { User, Home, Star, Settings, Info } from 'lucide-react-native';
 
 const MenuContent = (props) => {
   const { navigation } = props;
 
   const menuItems = [
     { label: 'Bosh sahifa', icon: Home, route: 'Home' },
-    { label: 'Mening navbatlarim', icon: Calendar, route: 'Appointments' },
     { label: 'Sevimlilar', icon: Star, route: 'Favorites' },
     { label: 'Sozlamalar', icon: Settings, route: 'Settings' },
     { label: 'Ilova haqida', icon: Info, route: 'About' },

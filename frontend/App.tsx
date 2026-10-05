@@ -13,10 +13,25 @@ import { navigationRef } from './RootNavigation';
 
 const Stack = createNativeStackNavigator();
 
+const getCurrentRouteName = () => {
+  const currentRoute = navigationRef.getCurrentRoute() as
+    | { name?: string }
+    | undefined;
+  return currentRoute?.name;
+};
+
 export default function App() {
   return (
     <SafeAreaProvider>
-      <NavigationContainer ref={navigationRef}>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={() => {
+          console.log('ROOT NAVIGATION: initial route:', getCurrentRouteName());
+        }}
+        onStateChange={() => {
+          console.log('ROOT NAVIGATION: active route:', getCurrentRouteName());
+        }}
+      >
         <Stack.Navigator
           initialRouteName="AuthChoice"
           screenOptions={{ headerShown: false }}

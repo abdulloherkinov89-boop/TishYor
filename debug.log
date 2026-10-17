@@ -1,2 +1,3 @@
 [0930/180719.360:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)
 [0930/180739.716:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)
+[1013/180325.037:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Не удается найти указанный файл. (0x2)

@@ -51,3 +51,17 @@ class Clinic(Base):
     rating = Column(String, default="Yangi")
     gradient_start = Column(String, default="#7F77DD")
     gradient_end = Column(String, default="#5742A9")
+
+
+class Service(Base):
+    __tablename__ = "yaratish_xizmat"
+
+    id = Column(Integer, primary_key=True, index=True)
+    clinic_id = Column(Integer, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    category = Column(String, default="Asosiy xizmatlar", nullable=False)
+    price = Column(Float, nullable=False)
+    price_from = Column(Integer, default=0, nullable=False)
+    duration = Column(String, default="30", nullable=False)
+    active = Column(Integer, default=1, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

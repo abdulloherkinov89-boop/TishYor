@@ -13,8 +13,9 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, ChevronRight, Home, MessageCircle, User, Users } from 'lucide-react-native';
+import { Search, ChevronRight, Home, MessageCircle, User } from 'lucide-react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { apiFetch } from '../utils/api';
 import ProfileModal from '../components/ProfileModal';
 import ClinicDetailModal from '../components/ClinicDetailModal';
@@ -259,74 +260,66 @@ export default function HomeScreen() {
                 </View>
               ) : (
                 clinics.map((clinic) => {
-                  const bannerUrl = clinic.banner_url || clinic.logo_url;
-                  const smallLogoUrl = clinic.logo_url || clinic.avatar_url || clinic.logo_small_url;
+                  const gradientStart = clinic.gradient_start || '#0083CA';
+                  const gradientEnd = clinic.gradient_end || '#0284C7';
 
                   return (
-                    <View key={clinic.id || clinic.name} style={styles.clinicCard}>
-                      {/* Banner Rasmi Konteyneri */}
-                      <View style={styles.bannerContainer}>
-                        {bannerUrl ? (
+                    <TouchableOpacity
+                      key={clinic.id || clinic.name}
+                      activeOpacity={0.7}
+                      style={styles.clinicCard}
+                      onPress={() => {
+                        setSelectedClinic(clinic);
+                        setClinicDetailVisible(true);
+                      }}
+                    >
+                      {/* Chap tomondagi Kvadrat Logo va Online Badge */}
+                      <View style={styles.clinicLogoContainer}>
+                        {clinic.logo_url ? (
                           <Image
-                            source={{ uri: bannerUrl }}
-                            style={styles.cardImagePlaceholder}
+                            source={{ uri: clinic.logo_url }}
+                            style={styles.clinicLogoImage}
                             resizeMode="cover"
                           />
                         ) : (
-                          <View style={[styles.cardImagePlaceholder, { backgroundColor: '#E0F2FE' }]} />
+                          <LinearGradient
+                            colors={[gradientStart, gradientEnd]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.clinicLogoImage}
+                          >
+                            <Text style={styles.clinicLogoFallbackText}>
+                              {clinic.name ? clinic.name[0].toUpperCase() : 'K'}
+                            </Text>
+                          </LinearGradient>
                         )}
+                        <View style={styles.onlineBadge} />
+                      </View>
 
-                        {/* Kichik Dumaloq Logotip */}
-                        <View style={styles.smallLogoWrapper}>
-                          {smallLogoUrl ? (
-                            <Image
-                              source={{ uri: smallLogoUrl }}
-                              style={styles.smallLogoImage}
-                              resizeMode="cover"
-                            />
-                          ) : (
-                            <View style={styles.smallLogoFallback}>
-                              <Text style={styles.smallLogoText}>
-                                {clinic.name ? clinic.name[0].toUpperCase() : 'K'}
-                              </Text>
-                            </View>
+                      {/* O'ng tomondagi matn qismi */}
+                      <View style={styles.clinicInfoContainer}>
+                        <View style={styles.clinicTopRow}>
+                          <Text style={styles.clinicNameText} numberOfLines={1}>
+                            {clinic.name}
+                          </Text>
+                          {clinic.rating !== undefined && (
+                            <Text style={styles.clinicRatingText}>
+                              ⭐{clinic.rating}
+                            </Text>
                           )}
                         </View>
-                      </View>
 
-                      {/* Card Kontenti */}
-                      <View style={styles.cardContent}>
-                        <Text style={styles.tagText}>{clinic.tag}</Text>
-                        <Text style={styles.clinicName}>{clinic.name}</Text>
-                        <Text style={styles.descriptionText} numberOfLines={2}>{clinic.description}</Text>
-                        <View style={styles.divider} />
-                        <View style={styles.cardFooter}>
-                          <View style={{ flex: 1, marginRight: 8 }}>
-                            <Text style={styles.footerInfoText} numberOfLines={1}>
-                              ⭐ {clinic.rating}  ·  {clinic.address}
-                            </Text>
-                            {clinic.patients_served !== undefined && (
-                              <View style={styles.patientsCountRow}>
-                                <Users size={12} color="#64748B" style={{ marginRight: 4 }} />
-                                <Text style={styles.patientsCountText}>
-                                  {clinic.patients_served} ta bemor
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          <TouchableOpacity 
-                            activeOpacity={0.8} 
-                            style={styles.actionButton}
-                            onPress={() => {
-                              setSelectedClinic(clinic);
-                              setClinicDetailVisible(true);
-                            }}
-                          >
-                            <Text style={styles.actionButtonText}>+ Ko'rish</Text>
-                          </TouchableOpacity>
-                        </View>
+                        <Text style={styles.clinicAddressText} numberOfLines={1}>
+                          {clinic.address}
+                        </Text>
+
+                        {clinic.patients_served !== undefined && clinic.patients_served !== null && (
+                          <Text style={styles.clinicPatientsText} numberOfLines={1}>
+                            {clinic.patients_served} ta bemor xizmat oldi
+                          </Text>
+                        )}
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   );
                 })
               )}
@@ -534,114 +527,79 @@ const styles = StyleSheet.create({
   cardsList: { 
     flexDirection: 'column' 
   },
-  clinicCard: { 
-    backgroundColor: '#FFFFFF', 
-    borderRadius: 20, 
-    marginBottom: 20, 
-    overflow: 'hidden',
+
+  /* YANGI KLINIKA KARTASINI STILLARI */
+  clinicCard: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#F1F5F9',
+    marginBottom: 14,
+    alignItems: 'center',
   },
-  bannerContainer: {
+  clinicLogoContainer: {
     position: 'relative',
-    width: '100%',
-    height: 160,
+    width: 64,
+    height: 64,
   },
-  cardImagePlaceholder: { 
-    width: '100%', 
-    height: '100%', 
-    borderTopLeftRadius: 20, 
-    borderTopRightRadius: 20 
-  },
-  smallLogoWrapper: {
-    position: 'absolute',
-    bottom: -24,
-    left: 16,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    overflow: 'hidden',
-    zIndex: 10,
-    elevation: 3,
-  },
-  smallLogoImage: {
-    width: '100%',
-    height: '100%',
-  },
-  smallLogoFallback: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#0083CA',
+  clinicLogoImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  smallLogoText: {
+  clinicLogoFallbackText: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
   },
-  cardContent: { 
-    padding: 18,
-    paddingTop: 32
+  onlineBadge: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#22C55E',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
-  tagText: { 
-    color: '#0083CA', 
-    fontSize: 11, 
-    fontWeight: '700', 
-    letterSpacing: 1, 
-    marginBottom: 6, 
-    textTransform: 'uppercase' 
+  clinicInfoContainer: {
+    flex: 1,
+    justifyContent: 'center',
   },
-  clinicName: { 
-    color: '#0F172A', 
-    fontSize: 20, 
-    fontWeight: '700', 
-    marginBottom: 6 
-  },
-  descriptionText: { 
-    color: '#64748B', 
-    fontSize: 13, 
-    lineHeight: 18, 
-    marginBottom: 14 
-  },
-  divider: { 
-    height: 1, 
-    backgroundColor: '#F1F5F9', 
-    marginBottom: 14 
-  },
-  cardFooter: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center' 
-  },
-  footerInfoText: { 
-    color: '#475569', 
-    fontSize: 13, 
-    fontWeight: '500' 
-  },
-  patientsCountRow: {
+  clinicTopRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 3,
+    marginBottom: 4,
   },
-  patientsCountText: {
+  clinicNameText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    flex: 1,
+    marginRight: 8,
+  },
+  clinicRatingText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0083CA',
+  },
+  clinicAddressText: {
+    fontSize: 13,
     color: '#64748B',
-    fontSize: 12,
-    fontWeight: '500',
+    marginBottom: 4,
   },
-  actionButton: { 
-    backgroundColor: '#E0F2FE', 
-    paddingHorizontal: 16, 
-    paddingVertical: 8, 
-    borderRadius: 20 
+  clinicPatientsText: {
+    fontSize: 11,
+    color: '#94A3B8',
   },
-  actionButtonText: { 
-    color: '#0083CA', 
-    fontSize: 13, 
-    fontWeight: '700' 
-  },
+
   placeholderContainer: { 
     flex: 1, 
     justifyContent: 'center', 

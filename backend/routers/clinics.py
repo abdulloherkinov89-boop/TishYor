@@ -2,7 +2,7 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
@@ -165,6 +165,43 @@ def get_my_clinic(
     return clinic
 
 
+@router.delete(
+    "/me",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Joriy klinikani o'chirish",
+)
+def delete_my_clinic(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+):
+    unauthorized = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Yaroqli Bearer token talab qilinadi",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    if credentials is None:
+        raise unauthorized
+
+    payload = decode_access_token(credentials.credentials)
+    if not payload:
+        raise unauthorized
+    if payload.get("role") != "clinic":
+        raise HTTPException(status_code=403, detail="Faqat klinika hisobi uchun ruxsat berilgan")
+
+    try:
+        clinic_id = int(payload["sub"])
+    except (KeyError, TypeError, ValueError):
+        raise unauthorized
+
+    clinic = db.query(models.Clinic).filter(models.Clinic.id == clinic_id).first()
+    if clinic is None:
+        raise HTTPException(status_code=404, detail="Klinika topilmadi")
+
+    db.delete(clinic)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{clinic_id}", response_model=schemas.ClinicOut)
 def get_clinic(clinic_id: int, db: Session = Depends(get_db)):
     clinic = (
@@ -178,3 +215,5 @@ def get_clinic(clinic_id: int, db: Session = Depends(get_db)):
     if clinic is None:
         raise HTTPException(status_code=404, detail="Klinika topilmadi")
     return clinic
+
+

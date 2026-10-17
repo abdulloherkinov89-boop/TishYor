@@ -8,144 +8,165 @@ import {
   PanResponder,
   Dimensions,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ScrollView,
   Image,
 } from 'react-native';
 import { X, Phone, MapPin, FileText } from 'lucide-react-native';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
-// Snap nuqtalari
-const SNAP_FULL = 0; // To'liq ekran
-const SNAP_HALF = SCREEN_HEIGHT * 0.35; // Yarim ekran
-const SNAP_CLOSED = SCREEN_HEIGHT; // Yopiq
+// Snap nuqtalari (qiymatlar o'zgartirilmadi)
+const SNAP_FULL = 0;
+const SNAP_HALF = SCREEN_HEIGHT * 0.35;
+const SNAP_CLOSED = SCREEN_HEIGHT;
 
 export default function ClinicDetailModal({ visible, onClose, clinic }) {
   const translateY = useRef(new Animated.Value(SNAP_CLOSED)).current;
-  const lastSnap = useRef(SNAP_HALF);
-  const [snapState, setSnapState] = useState('HALF'); // 'HALF' | 'FULL'
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const [snapState, setSnapState] = useState('HALF');
+  const [scrollOffset, setScrollOffset] = useState(0);
 
   useEffect(() => {
     if (visible) {
       setSnapState('HALF');
-      lastSnap.current = SNAP_HALF;
-      Animated.spring(translateY, {
-        toValue: SNAP_HALF,
-        useNativeDriver: true,
-        bounciness: 4,
-      }).start();
+      Animated.parallel([
+        Animated.spring(translateY, {
+          toValue: SNAP_HALF,
+          tension: 65,
+          friction: 11,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 0.4,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start();
     } else {
-      Animated.timing(translateY, {
-        toValue: SNAP_CLOSED,
-        duration: 250,
-        useNativeDriver: true,
-      }).start();
+      translateY.setValue(SNAP_CLOSED);
+      backdropOpacity.setValue(0);
     }
   }, [visible]);
 
-  const snapTo = (toValue, nextState) => {
-    lastSnap.current = toValue;
-    setSnapState(nextState);
-    Animated.spring(translateY, {
-      toValue,
-      useNativeDriver: true,
-      bounciness: 4,
-    }).start(() => {
-      if (nextState === 'CLOSED') {
-        onClose();
-      }
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: SNAP_CLOSED,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
     });
   };
+
+  const currentSnapState = useRef(snapState);
+  currentSnapState.current = snapState;
+
+  const scrollOffsetRef = useRef(scrollOffset);
+  scrollOffsetRef.current = scrollOffset;
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => false,
+
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Faqat sezirarli harakat bo'lganda ushlab qoladi
-        return Math.abs(gestureState.dy) > 5;
+        const { dy } = gestureState;
+        const isHalf = currentSnapState.current === 'HALF';
+
+        if (isHalf) return true;
+        if (!isHalf && scrollOffsetRef.current <= 0 && dy > 0) return true;
+
+        return false;
       },
+
       onPanResponderGrant: () => {
         translateY.extractOffset();
       },
+
       onPanResponderMove: (_, gestureState) => {
         translateY.setValue(gestureState.dy);
       },
+
       onPanResponderRelease: (_, gestureState) => {
         translateY.flattenOffset();
-        const currentPosition = lastSnap.current + gestureState.dy;
-        const velocity = gestureState.vy;
+        const { dy, vy } = gestureState;
+        const isHalf = currentSnapState.current === 'HALF';
 
-        if (velocity > 0.5) {
-          // Tez pastga surilganda
-          if (lastSnap.current === SNAP_FULL) {
-            snapTo(SNAP_HALF, 'HALF');
+        if (isHalf) {
+          if (dy < -40 || vy < -0.2) {
+            setSnapState('FULL');
+            Animated.spring(translateY, {
+              toValue: SNAP_FULL,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
+          } else if (dy > 60 || vy > 0.3) {
+            handleClose();
           } else {
-            snapTo(SNAP_CLOSED, 'CLOSED');
+            Animated.spring(translateY, {
+              toValue: SNAP_HALF,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
           }
-        } else if (velocity < -0.5) {
-          // Tez yuqoriga surilganda
-          snapTo(SNAP_FULL, 'FULL');
         } else {
-          // Eng yaqin snap nuqtasini aniqlash
-          const distToFull = Math.abs(currentPosition - SNAP_FULL);
-          const distToHalf = Math.abs(currentPosition - SNAP_HALF);
-          const distToClosed = Math.abs(currentPosition - SNAP_CLOSED);
-
-          const min = Math.min(distToFull, distToHalf, distToClosed);
-          if (min === distToFull) {
-            snapTo(SNAP_FULL, 'FULL');
-          } else if (min === distToHalf) {
-            snapTo(SNAP_HALF, 'HALF');
+          if (dy > 60 || vy > 0.3) {
+            setSnapState('HALF');
+            Animated.spring(translateY, {
+              toValue: SNAP_HALF,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
           } else {
-            snapTo(SNAP_CLOSED, 'CLOSED');
+            Animated.spring(translateY, {
+              toValue: SNAP_FULL,
+              tension: 65,
+              friction: 11,
+              useNativeDriver: true,
+            }).start();
           }
         }
       },
     })
   ).current;
 
-  const handleClose = () => {
-    snapTo(SNAP_CLOSED, 'CLOSED');
-  };
-
-  if (!visible && translateY._value === SNAP_CLOSED) return null;
+  if (!visible) return null;
   if (!clinic) return null;
-
-  // Backdrop shaffofligi animatsiyasi
-  const backdropOpacity = translateY.interpolate({
-    inputRange: [SNAP_FULL, SNAP_HALF, SNAP_CLOSED],
-    outputRange: [0.6, 0.4, 0],
-    extrapolate: 'clamp',
-  });
 
   const firstLetter = clinic.name ? clinic.name[0].toUpperCase() : 'K';
 
   return (
     <Modal
-      visible={visible}
-      transparent
       animationType="none"
+      transparent={true}
+      visible={visible}
       onRequestClose={handleClose}
     >
       <View style={styles.overlay}>
-        {/* Backdrop (orqa fon) */}
-        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
-          <TouchableOpacity
-            style={styles.backdropTouch}
-            activeOpacity={1}
-            onPress={handleClose}
-          />
-        </Animated.View>
+        <TouchableWithoutFeedback onPress={handleClose}>
+          <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+        </TouchableWithoutFeedback>
 
-        {/* Modal Konteyneri */}
         <Animated.View
           style={[
             styles.modalContainer,
             { transform: [{ translateY }] },
           ]}
+          {...panResponder.panHandlers}
         >
-          {/* Drag Handle & Header (PanResponder paneli) */}
-          <View {...panResponder.panHandlers} style={styles.dragHeader}>
+          {/* Drag Handle & Header */}
+          <View style={styles.dragHeader}>
             <View style={styles.dragHandle} />
             <View style={styles.headerRow}>
               <Text style={styles.headerTitle}>Klinika haqida</Text>
@@ -155,11 +176,13 @@ export default function ClinicDetailModal({ visible, onClose, clinic }) {
             </View>
           </View>
 
-          {/* Kontent ScrollView */}
+          {/* Kontent ScrollView - o'zgarishsiz */}
           <ScrollView
             scrollEnabled={snapState === 'FULL'}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
+            onScroll={(e) => setScrollOffset(e.nativeEvent.contentOffset.y)}
+            scrollEventThrottle={16}
           >
             {/* 2. LOGO VA NOMI */}
             <View style={styles.clinicHeaderCard}>
@@ -197,7 +220,7 @@ export default function ClinicDetailModal({ visible, onClose, clinic }) {
             {/* 4. MA'LUMOTLAR BO'LIMI */}
             <View style={styles.infoCard}>
               <Text style={styles.sectionTitle}>MA'LUMOTLAR</Text>
-              
+
               <View style={styles.infoRow}>
                 <View style={styles.iconWrapper}>
                   <Phone size={18} color="#0083CA" />
@@ -276,9 +299,6 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000000',
-  },
-  backdropTouch: {
-    flex: 1,
   },
   modalContainer: {
     height: SCREEN_HEIGHT,

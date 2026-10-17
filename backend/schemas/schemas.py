@@ -1,8 +1,6 @@
 from datetime import datetime
 from typing import Optional
-
 from pydantic import BaseModel
-
 from models.models import ClinicStatus
 
 
@@ -102,6 +100,32 @@ class ClinicOut(BaseModel):
     patients_served: Optional[int] = None
     license_number: Optional[str] = None
     status: ClinicStatus
+
+    class Config:
+        from_attributes = True
+
+
+# creat hizmat va narxlar schems
+class ServiceCreate(BaseModel):
+    name: str
+    price: float
+    duration: Optional[str] = "30"
+
+class ServiceUpdate(BaseModel):
+    price: Optional[float] = None
+    price_from: Optional[bool] = False
+    duration: Optional[str] = None
+    active: Optional[bool] = True
+
+class ServiceOut(BaseModel):
+    id: int
+    clinic_id: int
+    name: str
+    category: str
+    price: float
+    price_from: bool
+    duration: str
+    active: bool
 
     class Config:
         from_attributes = True

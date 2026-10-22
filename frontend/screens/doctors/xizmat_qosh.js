@@ -16,19 +16,19 @@ import {
   Alert,
   Switch,
   PanResponder,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { apiFetch } from '../../utils/api';
-import {
-  X,
-  Plus,
-  Search,
-  Check,
-  Trash2,
-  Briefcase,
-  Clock,
-} from 'lucide-react-native';
+import { X, Plus, Search, Check, Trash2, Briefcase, Clock } from 'lucide-react-native';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const STATUS_BAR_HEIGHT = Platform.OS === 'ios' ? 44 : (StatusBar.currentHeight || 24);
+
+const SNAP_FULL = STATUS_BAR_HEIGHT + 8;
+const SNAP_HALF = SCREEN_HEIGHT * 0.5;
+const SNAP_CLOSED = SCREEN_HEIGHT;
 
 const DOCTORS = [
   { id: 'd1', name: 'Dr. Aziz Karimov', initials: 'AK', color: '#E0F2FE', textColor: '#0369A1' },
@@ -46,32 +46,25 @@ const formatPrice = (value) => {
 
 const XizmatQoshScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { height: screenHeight } = useWindowDimensions();
-  const snapFull = Math.max(
-    insets.top,
-    Platform.OS === 'ios' ? 44 : (StatusBar.currentHeight || 24),
-  ) + 8;
-
-  const translateY = useRef(new Animated.Value(screenHeight)).current;
+  const translateY = useRef(new Animated.Value(SNAP_CLOSED)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  const currentSnapState = useRef('HALF');
+  const scrollOffsetRef = useRef(0);
   const isClosingRef = useRef(false);
 
-  // Yangi klinika uchun boshlang'ich holatda xizmatlar ro'yxati BO'SH (bo'lib turishi uchun)
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
   const [savingService, setSavingService] = useState(false);
   const [servicesError, setServicesError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // views: 'main' | 'custom_add' | 'edit'
   const [currentView, setCurrentView] = useState('main');
 
-  // Custom add form state
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
   const [customDuration, setCustomDuration] = useState('');
 
-  // Edit service state
   const [editingService, setEditingService] = useState(null);
   const [editPrice, setEditPrice] = useState('');
   const [editPriceFrom, setEditPriceFrom] = useState(false);
@@ -79,14 +72,124 @@ const XizmatQoshScreen = ({ navigation }) => {
   const [editDoctorIds, setEditDoctorIds] = useState([]);
   const [editActive, setEditActive] = useState(true);
 
+  const updateSnapState = (nextState) => {
+    currentSnapState.current = nextState;
+  };
+
+  const animateTo = (toValue, callback) => {
+    Animated.spring(translateY, {
+      toValue,
+      tension: 65,
+      friction: 11,
+      useNativeDriver: true,
+    }).start(callback);
+  };
+
+  useEffect(() => {
+    isClosingRef.current = false;
+    updateSnapState('HALF');
+    translateY.setValue(SNAP_CLOSED);
+    backdropOpacity.setValue(0);
+
+    Animated.parallel([
+      Animated.spring(translateY, {
+        toValue: SNAP_HALF,
+        tension: 65,
+        friction: 11,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0.4,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [translateY, backdropOpacity]);
+
+  const handleClose = () => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: SNAP_CLOSED,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (finished) navigation.goBack();
+    });
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gesture) => {
+        const { dx, dy } = gesture;
+        if (Math.abs(dy) < 8 || Math.abs(dy) < Math.abs(dx)) return false;
+        if (currentSnapState.current === 'HALF') return true;
+        return scrollOffsetRef.current <= 0 && dy > 0;
+      },
+      onPanResponderGrant: () => {
+        translateY.stopAnimation();
+        translateY.extractOffset();
+      },
+      onPanResponderMove: (_, gesture) => {
+        const isHalf = currentSnapState.current === 'HALF';
+        if (isHalf) {
+          const nextY = Math.max(SNAP_FULL, Math.min(SNAP_CLOSED, SNAP_HALF + gesture.dy));
+          translateY.setValue(nextY - SNAP_HALF);
+        } else if (gesture.dy > 0 && scrollOffsetRef.current <= 0) {
+          translateY.setValue(gesture.dy);
+        }
+      },
+      onPanResponderRelease: (_, gesture) => {
+        translateY.flattenOffset();
+        const { dy, vy } = gesture;
+        const isHalf = currentSnapState.current === 'HALF';
+
+        if (isHalf) {
+          if (dy < -60 || vy < -0.35) {
+            updateSnapState('FULL');
+            animateTo(SNAP_FULL);
+          } else if (dy > 100 || vy > 0.5) {
+            handleClose();
+          } else {
+            updateSnapState('HALF');
+            animateTo(SNAP_HALF);
+          }
+        } else {
+          if (dy > 100 || vy > 0.5) {
+            updateSnapState('HALF');
+            animateTo(SNAP_HALF);
+          } else {
+            updateSnapState('FULL');
+            animateTo(SNAP_FULL);
+          }
+        }
+      },
+      onPanResponderTerminate: () => {
+        translateY.flattenOffset();
+        animateTo(currentSnapState.current === 'FULL' ? SNAP_FULL : SNAP_HALF);
+      },
+    })
+  ).current;
+
+  const handleScroll = (event) => {
+    scrollOffsetRef.current = Math.max(0, event.nativeEvent.contentOffset.y);
+  };
+
   const getResponseError = async (response) => {
     let message = 'So‘rovni bajarib bo‘lmadi. Qayta urinib ko‘ring.';
     try {
       const payload = await response.json();
       if (typeof payload.detail === 'string') message = payload.detail;
-    } catch (error) {
-      // Javob JSON bo'lmasa, umumiy xabar ishlatiladi.
-    }
+    } catch (error) {}
     return message;
   };
 
@@ -125,80 +228,14 @@ const XizmatQoshScreen = ({ navigation }) => {
     }, []),
   );
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(translateY, {
-        toValue: snapFull,
-        tension: 65,
-        friction: 11,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0.5,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [snapFull, screenHeight, translateY, backdropOpacity]);
-
-  const handleClose = () => {
-    if (isClosingRef.current) return;
-    isClosingRef.current = true;
-
-    Animated.parallel([
-      Animated.timing(translateY, {
-        toValue: screenHeight,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (finished) navigation.goBack();
-    });
-  };
-
-  // PanResponder to handle vertical drag gestures smoothly
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
-      onPanResponderMove: (_, gestureState) => {
-        let newY = snapFull + gestureState.dy;
-        if (newY < snapFull) {
-          newY = snapFull + (gestureState.dy * 0.2);
-        }
-        translateY.setValue(newY);
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy > 150 || gestureState.vy > 0.8) {
-          handleClose();
-        } else {
-          Animated.spring(translateY, {
-            toValue: snapFull,
-            tension: 65,
-            friction: 11,
-            useNativeDriver: true,
-          }).start();
-        }
-      },
-    })
-  ).current;
-
-  // Summary statistics
   const totalCount = services.length;
   const activeCount = services.filter((s) => s.active).length;
   const uniqueCategoriesCount = new Set(services.map((s) => s.category)).size;
 
-  // Filtered services for main screen
   const filteredServices = services.filter((item) =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Group services by category
   const groupedServices = filteredServices.reduce((acc, item) => {
     const cat = item.category || 'Asosiy xizmatlar';
     if (!acc[cat]) acc[cat] = [];
@@ -211,7 +248,6 @@ const XizmatQoshScreen = ({ navigation }) => {
       Alert.alert('Xatolik', 'Xizmat nomi va narxini kiriting');
       return;
     }
-
     const price = Number(customPrice.replace(/\s/g, ''));
     if (!Number.isFinite(price) || price < 0) {
       Alert.alert('Xatolik', 'Xizmat narxini to‘g‘ri kiriting');
@@ -267,7 +303,6 @@ const XizmatQoshScreen = ({ navigation }) => {
       Alert.alert('Xatolik', 'Narx kiritilishi shart');
       return;
     }
-
     const price = Number(editPrice.replace(/\s/g, ''));
     if (!Number.isFinite(price) || price < 0) {
       Alert.alert('Xatolik', 'Xizmat narxini to‘g‘ri kiriting');
@@ -358,21 +393,15 @@ const XizmatQoshScreen = ({ navigation }) => {
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
       </TouchableWithoutFeedback>
 
-      <Animated.View
-        style={[
-          styles.sheetContainer,
-          { transform: [{ translateY }] },
-        ]}
-      >
+      <Animated.View style={[styles.sheetContainer, { transform: [{ translateY }] }]}>
         <View style={styles.dragHandleZone} {...panResponder.panHandlers}>
           <View style={styles.dragHandle} />
         </View>
 
-        {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerTitleRow}>
             <View style={styles.headerIconBox}>
-              <Briefcase size={20} color="#087FC1" />
+              <Briefcase size={18} color="#0284C7" />
             </View>
             <View>
               <Text style={styles.headerTitle}>Xizmatlar va narxlar</Text>
@@ -380,17 +409,13 @@ const XizmatQoshScreen = ({ navigation }) => {
             </View>
           </View>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton} activeOpacity={0.7}>
-            <X size={20} color="#73839A" />
+            <X size={18} color="#64748B" />
           </TouchableOpacity>
         </View>
 
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1 }}
-        >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           {currentView === 'main' && (
             <View style={{ flex: 1 }}>
-              {/* Summary Card */}
               <View style={styles.summaryCard}>
                 <View style={styles.summaryItem}>
                   <Text style={styles.summaryValue}>{totalCount} ta</Text>
@@ -408,15 +433,14 @@ const XizmatQoshScreen = ({ navigation }) => {
                 </View>
               </View>
 
-              {/* Search Field (agar xizmatlar bo'lsa ko'rinadi yoki doimiy turishi mumkin) */}
               {services.length > 0 && (
                 <View style={styles.searchRow}>
                   <View style={styles.searchBox}>
-                    <Search size={18} color="#73839A" style={{ marginRight: 8 }} />
+                    <Search size={16} color="#64748B" style={{ marginRight: 6 }} />
                     <TextInput
                       style={styles.searchInput}
                       placeholder="Xizmat nomini izlang..."
-                      placeholderTextColor="#73839A"
+                      placeholderTextColor="#64748B"
                       value={searchQuery}
                       onChangeText={setSearchQuery}
                     />
@@ -424,17 +448,16 @@ const XizmatQoshScreen = ({ navigation }) => {
                 </View>
               )}
 
-              {/* Grouped Service List / Empty state */}
               <ScrollView
-                contentContainerStyle={[
-                  styles.listContent,
-                  { paddingBottom: Math.max(insets.bottom, 24) + 80 },
-                ]}
+                contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 16) + 70 }]}
                 showsVerticalScrollIndicator={false}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+                nestedScrollEnabled
               >
                 {loadingServices ? (
                   <View style={styles.emptyBox}>
-                    <ActivityIndicator size="large" color="#087FC1" />
+                    <ActivityIndicator size="small" color="#0284C7" />
                     <Text style={styles.emptySubText}>Xizmatlar yuklanmoqda...</Text>
                   </View>
                 ) : servicesError ? (
@@ -446,9 +469,9 @@ const XizmatQoshScreen = ({ navigation }) => {
                   </View>
                 ) : filteredServices.length === 0 ? (
                   <View style={styles.emptyBox}>
-                    <Briefcase size={44} color="#CBD5E1" style={{ marginBottom: 12 }} />
+                    <Briefcase size={38} color="#CBD5E1" style={{ marginBottom: 8 }} />
                     <Text style={styles.emptyText}>Hali xizmat qo'shilmagan</Text>
-                    <Text style={styles.emptySubText}>Pastdagi "+" tugmasini bosib xizmat qo'shing</Text>
+                    <Text style={styles.emptySubText}>Pastdagi tugmani bosib xizmat qo'shing</Text>
                   </View>
                 ) : (
                   Object.entries(groupedServices).map(([categoryName, items]) => (
@@ -461,9 +484,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                       </View>
 
                       {items.map((item) => {
-                        const assignedDoctors = DOCTORS.filter((d) =>
-                          (item.doctorIds || []).includes(d.id)
-                        );
+                        const assignedDoctors = DOCTORS.filter((d) => (item.doctorIds || []).includes(d.id));
                         return (
                           <TouchableOpacity
                             key={item.id}
@@ -472,9 +493,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                             activeOpacity={0.8}
                           >
                             <View style={styles.serviceInfo}>
-                              <Text style={[styles.serviceName, !item.active && styles.inactiveText]}>
-                                {item.name}
-                              </Text>
+                              <Text style={[styles.serviceName, !item.active && styles.inactiveText]}>{item.name}</Text>
                               <View style={styles.serviceMetaRow}>
                                 <Text style={[styles.servicePrice, !item.active && styles.inactiveText]}>
                                   {renderDisplayPrice(item.price, item.priceFrom)}
@@ -483,14 +502,12 @@ const XizmatQoshScreen = ({ navigation }) => {
                                   <>
                                     <Text style={styles.metaDot}>·</Text>
                                     <View style={styles.durationRow}>
-                                      <Clock size={12} color="#73839A" style={{ marginRight: 3 }} />
+                                      <Clock size={12} color="#64748B" style={{ marginRight: 2 }} />
                                       <Text style={styles.serviceDuration}>{item.duration} daq</Text>
                                     </View>
                                   </>
                                 ) : null}
                               </View>
-
-                              {/* Doctors Avatars */}
                               {assignedDoctors.length > 0 && (
                                 <View style={styles.doctorsRow}>
                                   <View style={styles.avatarsContainer}>
@@ -499,23 +516,19 @@ const XizmatQoshScreen = ({ navigation }) => {
                                         key={doc.id}
                                         style={[
                                           styles.avatarBubble,
-                                          { backgroundColor: doc.color, marginLeft: idx > 0 ? -10 : 0 },
+                                          { backgroundColor: doc.color, marginLeft: idx > 0 ? -8 : 0 },
                                         ]}
                                       >
-                                        <Text style={[styles.avatarText, { color: doc.textColor }]}>
-                                          {doc.initials}
-                                        </Text>
+                                        <Text style={[styles.avatarText, { color: doc.textColor }]}>{doc.initials}</Text>
                                       </View>
                                     ))}
                                     {assignedDoctors.length > 3 && (
-                                      <View style={[styles.avatarBubble, styles.extraAvatar, { marginLeft: -10 }]}>
+                                      <View style={[styles.avatarBubble, styles.extraAvatar, { marginLeft: -8 }]}>
                                         <Text style={styles.extraAvatarText}>+{assignedDoctors.length - 3}</Text>
                                       </View>
                                     )}
                                   </View>
-                                  <Text style={styles.doctorCountLabel}>
-                                    {assignedDoctors.length} ta doktor
-                                  </Text>
+                                  <Text style={styles.doctorCountLabel}>{assignedDoctors.length} ta doktor</Text>
                                 </View>
                               )}
                             </View>
@@ -525,7 +538,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                                 value={item.active}
                                 onValueChange={(val) => handleToggleService(item, val)}
                                 trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
-                                thumbColor={item.active ? '#087FC1' : '#F1F5F9'}
+                                thumbColor={item.active ? '#0284C7' : '#F1F5F9'}
                               />
                             </View>
                           </TouchableOpacity>
@@ -536,7 +549,6 @@ const XizmatQoshScreen = ({ navigation }) => {
                 )}
               </ScrollView>
 
-              {/* Sticky Bottom Button */}
               <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                 <TouchableOpacity
                   style={styles.catalogButton}
@@ -548,7 +560,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                   }}
                   activeOpacity={0.85}
                 >
-                  <Plus size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Plus size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
                   <Text style={styles.catalogButtonText}>Xizmat qo'shish</Text>
                 </TouchableOpacity>
               </View>
@@ -557,12 +569,11 @@ const XizmatQoshScreen = ({ navigation }) => {
 
           {currentView === 'custom_add' && (
             <ScrollView
-              contentContainerStyle={[
-                styles.scrollContent,
-                { paddingBottom: Math.max(insets.bottom, 24) + 20 },
-              ]}
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 20 }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
             >
               <View style={styles.subHeaderRow}>
                 <Text style={styles.subHeaderTitle}>Yangi xizmat qo'shish</Text>
@@ -577,7 +588,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                   <TextInput
                     style={styles.textInput}
                     placeholder="Masalan: Konsultatsiya"
-                    placeholderTextColor="#73839A"
+                    placeholderTextColor="#64748B"
                     value={customName}
                     onChangeText={setCustomName}
                   />
@@ -589,7 +600,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                     style={styles.textInput}
                     placeholder="Masalan: 150 000"
                     keyboardType="numeric"
-                    placeholderTextColor="#73839A"
+                    placeholderTextColor="#64748B"
                     value={customPrice}
                     onChangeText={(val) => setCustomPrice(formatPrice(val))}
                   />
@@ -601,29 +612,20 @@ const XizmatQoshScreen = ({ navigation }) => {
                     style={styles.textInput}
                     placeholder="Masalan: 30"
                     keyboardType="number-pad"
-                    placeholderTextColor="#73839A"
+                    placeholderTextColor="#64748B"
                     value={customDuration}
                     onChangeText={setCustomDuration}
                   />
                 </View>
 
                 <View style={styles.formButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() => setCurrentView('main')}
-                    activeOpacity={0.8}
-                  >
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => setCurrentView('main')} activeOpacity={0.8}>
                     <Text style={styles.cancelButtonText}>Bekor qilish</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={styles.saveButton}
-                    onPress={handleSaveCustomService}
-                    disabled={savingService}
-                    activeOpacity={0.85}
-                  >
+                  <TouchableOpacity style={styles.saveButton} onPress={handleSaveCustomService} disabled={savingService} activeOpacity={0.85}>
                     {savingService ? <ActivityIndicator size="small" color="#FFFFFF" /> : <>
-                      <Check size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                      <Check size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
                       <Text style={styles.saveButtonText}>Saqlash</Text>
                     </>}
                   </TouchableOpacity>
@@ -634,12 +636,11 @@ const XizmatQoshScreen = ({ navigation }) => {
 
           {currentView === 'edit' && editingService && (
             <ScrollView
-              contentContainerStyle={[
-                styles.scrollContent,
-                { paddingBottom: Math.max(insets.bottom, 24) + 20 },
-              ]}
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 20 }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
             >
               <View style={styles.subHeaderRow}>
                 <Text style={styles.subHeaderTitle}>Xizmatni tahrirlash</Text>
@@ -658,7 +659,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                     style={styles.textInput}
                     placeholder="Masalan: 150 000"
                     keyboardType="numeric"
-                    placeholderTextColor="#73839A"
+                    placeholderTextColor="#64748B"
                     value={editPrice}
                     onChangeText={(val) => setEditPrice(formatPrice(val))}
                   />
@@ -670,7 +671,7 @@ const XizmatQoshScreen = ({ navigation }) => {
                     value={editPriceFrom}
                     onValueChange={setEditPriceFrom}
                     trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
-                    thumbColor={editPriceFrom ? '#087FC1' : '#F1F5F9'}
+                    thumbColor={editPriceFrom ? '#0284C7' : '#F1F5F9'}
                   />
                 </View>
 
@@ -680,13 +681,12 @@ const XizmatQoshScreen = ({ navigation }) => {
                     style={styles.textInput}
                     placeholder="Masalan: 30"
                     keyboardType="number-pad"
-                    placeholderTextColor="#73839A"
+                    placeholderTextColor="#64748B"
                     value={editDuration}
                     onChangeText={setEditDuration}
                   />
                 </View>
 
-                {/* Kim bajaradi? DOCTORS chips */}
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Kim bajaradi? (Doktorlar)</Text>
                   <View style={styles.doctorsChipsContainer}>
@@ -699,25 +699,10 @@ const XizmatQoshScreen = ({ navigation }) => {
                           onPress={() => toggleDoctorSelection(doc.id)}
                           activeOpacity={0.8}
                         >
-                          <View
-                            style={[
-                              styles.chipAvatar,
-                              { backgroundColor: doc.color },
-                              isSelected && { backgroundColor: '#FFFFFF' },
-                            ]}
-                          >
-                            <Text style={[styles.chipAvatarText, { color: doc.textColor }]}>
-                              {doc.initials}
-                            </Text>
+                          <View style={[styles.chipAvatar, { backgroundColor: doc.color }, isSelected && { backgroundColor: '#FFFFFF' }]}>
+                            <Text style={[styles.chipAvatarText, { color: doc.textColor }]}>{doc.initials}</Text>
                           </View>
-                          <Text
-                            style={[
-                              styles.doctorChipText,
-                              isSelected && styles.doctorChipTextSelected,
-                            ]}
-                          >
-                            {doc.name}
-                          </Text>
+                          <Text style={[styles.doctorChipText, isSelected && styles.doctorChipTextSelected]}>{doc.name}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -730,38 +715,25 @@ const XizmatQoshScreen = ({ navigation }) => {
                     value={editActive}
                     onValueChange={setEditActive}
                     trackColor={{ false: '#CBD5E1', true: '#93C5FD' }}
-                    thumbColor={editActive ? '#087FC1' : '#F1F5F9'}
+                    thumbColor={editActive ? '#0284C7' : '#F1F5F9'}
                   />
                 </View>
 
                 <View style={styles.formButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() => setCurrentView('main')}
-                    activeOpacity={0.8}
-                  >
+                  <TouchableOpacity style={styles.cancelButton} onPress={() => setCurrentView('main')} activeOpacity={0.8}>
                     <Text style={styles.cancelButtonText}>Bekor qilish</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={styles.saveButton}
-                    onPress={handleUpdateService}
-                    disabled={savingService}
-                    activeOpacity={0.85}
-                  >
+                  <TouchableOpacity style={styles.saveButton} onPress={handleUpdateService} disabled={savingService} activeOpacity={0.85}>
                     {savingService ? <ActivityIndicator size="small" color="#FFFFFF" /> : <>
-                      <Check size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                      <Check size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
                       <Text style={styles.saveButtonText}>Saqlash</Text>
                     </>}
                   </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => handleDeleteService(editingService.id)}
-                  activeOpacity={0.8}
-                >
-                  <Trash2 size={16} color="#EF4444" style={{ marginRight: 6 }} />
+                <TouchableOpacity style={styles.deleteButton} onPress={() => handleDeleteService(editingService.id)} activeOpacity={0.8}>
+                  <Trash2 size={16} color="#EF4444" style={{ marginRight: 4 }} />
                   <Text style={styles.deleteButtonText}>Xizmatni o'chirish</Text>
                 </TouchableOpacity>
               </View>
@@ -775,253 +747,91 @@ const XizmatQoshScreen = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   overlayContainer: { flex: 1, backgroundColor: 'transparent' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0, 0, 0, 0.45)' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000000' },
   sheetContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#F8FAFC',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 10,
+    overflow: 'hidden',
   },
   dragHandleZone: { width: '100%', height: 28, alignItems: 'center', justifyContent: 'center' },
-  dragHandle: { width: 44, height: 5, borderRadius: 3, backgroundColor: '#CBD5E1' },
-  
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#13243A' },
-  headerSubtitle: { fontSize: 12, color: '#73839A', marginTop: 1 },
-  closeButton: { padding: 8, backgroundColor: '#F1F5F9', borderRadius: 14 },
-
-  summaryCard: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 12,
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
+  dragHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E2E8F0' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#F1F5F9', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: '#0F172A' },
+  headerSubtitle: { fontSize: 11, color: '#64748B', marginTop: 1 },
+  closeButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F5F9', borderRadius: 10 },
+  summaryCard: { flexDirection: 'row', backgroundColor: '#F8FAFC', borderRadius: 14, padding: 10, alignItems: 'center', justifyContent: 'space-around', marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' },
   summaryItem: { alignItems: 'center' },
-  summaryValue: { fontSize: 16, fontWeight: '800', color: '#13243A' },
-  summaryLabel: { fontSize: 11, color: '#73839A', marginTop: 2, fontWeight: '600' },
-  summaryDivider: { width: 1, height: 24, backgroundColor: '#E2E8F0' },
-
-  searchRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
-  searchBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    height: 48,
-  },
-  searchInput: { flex: 1, fontSize: 14, color: '#13243A', fontWeight: '500' },
-
-  listContent: { gap: 16, paddingTop: 4 },
+  summaryValue: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+  summaryLabel: { fontSize: 10, color: '#64748B', marginTop: 1, fontWeight: '600' },
+  summaryDivider: { width: 1, height: 20, backgroundColor: '#E2E8F0' },
+  searchRow: { flexDirection: 'row', marginBottom: 10 },
+  searchBox: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, paddingHorizontal: 12, height: 42 },
+  searchInput: { flex: 1, fontSize: 13, color: '#0F172A', fontWeight: '500' },
+  listContent: { gap: 14, paddingTop: 4 },
   categoryGroup: { gap: 8 },
-  categoryHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    marginBottom: 4,
-  },
-  categoryHeaderTitle: { fontSize: 14, fontWeight: '700', color: '#13243A' },
-  categoryCountBadge: {
-    backgroundColor: '#E2E8F0',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  categoryCountText: { fontSize: 11, fontWeight: '700', color: '#475569' },
-
-  serviceCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-  },
-  inactiveCard: { backgroundColor: '#F1F5F9', opacity: 0.75 },
-  serviceInfo: { flex: 1, paddingRight: 10 },
-  serviceName: { fontSize: 14, fontWeight: '700', color: '#13243A', marginBottom: 4 },
-  inactiveText: { color: '#73839A' },
-  serviceMetaRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  servicePrice: { fontSize: 13, fontWeight: '800', color: '#16A34A' },
-  metaDot: { marginHorizontal: 6, color: '#73839A' },
+  categoryHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 2 },
+  categoryHeaderTitle: { fontSize: 13, fontWeight: '700', color: '#0F172A' },
+  categoryCountBadge: { backgroundColor: '#F1F5F9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  categoryCountText: { fontSize: 10, fontWeight: '700', color: '#64748B' },
+  serviceCard: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center' },
+  inactiveCard: { backgroundColor: '#F8FAFC', opacity: 0.75 },
+  serviceInfo: { flex: 1, paddingRight: 8 },
+  serviceName: { fontSize: 13, fontWeight: '700', color: '#0F172A', marginBottom: 3 },
+  inactiveText: { color: '#64748B' },
+  serviceMetaRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  servicePrice: { fontSize: 12, fontWeight: '700', color: '#16A34A' },
+  metaDot: { marginHorizontal: 4, color: '#64748B' },
   durationRow: { flexDirection: 'row', alignItems: 'center' },
-  serviceDuration: { fontSize: 12, color: '#73839A', fontWeight: '500' },
-
-  doctorsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 },
+  serviceDuration: { fontSize: 11, color: '#64748B', fontWeight: '500' },
+  doctorsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6 },
   avatarsContainer: { flexDirection: 'row', alignItems: 'center' },
-  avatarBubble: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-  },
-  avatarText: { fontSize: 9, fontWeight: '800' },
+  avatarBubble: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FFFFFF' },
+  avatarText: { fontSize: 8, fontWeight: '700' },
   extraAvatar: { backgroundColor: '#E2E8F0' },
-  extraAvatarText: { fontSize: 9, fontWeight: '700', color: '#475569' },
-  doctorCountLabel: { fontSize: 11, color: '#73839A', fontWeight: '500' },
-
+  extraAvatarText: { fontSize: 8, fontWeight: '700', color: '#475569' },
+  doctorCountLabel: { fontSize: 10, color: '#64748B', fontWeight: '500' },
   serviceRightAction: { alignItems: 'center', justifyContent: 'center' },
-
-  emptyBox: { padding: 40, alignItems: 'center', justifyContent: 'center' },
-  emptyText: { color: '#13243A', fontSize: 15, fontWeight: '700', marginTop: 8 },
-  emptySubText: { color: '#73839A', fontSize: 13, marginTop: 4, textAlign: 'center' },
-
-  stickyFooter: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#F8FAFC',
-    paddingTop: 10,
-    paddingHorizontal: 4,
-  },
-  catalogButton: {
-    height: 50,
-    borderRadius: 16,
-    backgroundColor: '#087FC1',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#087FC1',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  catalogButtonText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
-
-  subHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingHorizontal: 2,
-  },
-  subHeaderTitle: { fontSize: 16, fontWeight: '800', color: '#13243A' },
+  emptyBox: { padding: 30, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { color: '#0F172A', fontSize: 14, fontWeight: '700', marginTop: 6 },
+  emptySubText: { color: '#64748B', fontSize: 12, marginTop: 2, textAlign: 'center' },
+  stickyFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#FFFFFF', paddingTop: 8, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#E2E8F0' },
+  catalogButton: { height: 46, borderRadius: 12, backgroundColor: '#0F172A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  catalogButtonText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  subHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  subHeaderTitle: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
   textLinkBtn: { padding: 4 },
-  textLinkText: { fontSize: 13, fontWeight: '700', color: '#087FC1' },
-
-  scrollContent: { gap: 14 },
-  formCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 12,
-  },
-  editingServiceNameTitle: { fontSize: 16, fontWeight: '800', color: '#13243A' },
-  editingCategorySubtitle: { fontSize: 12, color: '#73839A', fontWeight: '600', marginTop: -6 },
-  inputGroup: { gap: 6 },
-  label: { fontSize: 13, fontWeight: '700', color: '#13243A' },
-  textInput: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 14,
-    height: 48,
-    paddingHorizontal: 14,
-    fontSize: 14,
-    color: '#13243A',
-    fontWeight: '500',
-  },
-  rowSwitchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-
-  doctorsChipsContainer: { gap: 8 },
-  doctorChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 8,
-    borderRadius: 14,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 10,
-  },
-  doctorChipSelected: { backgroundColor: '#087FC1', borderColor: '#087FC1' },
-  chipAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chipAvatarText: { fontSize: 10, fontWeight: '800' },
-  doctorChipText: { fontSize: 13, fontWeight: '600', color: '#13243A' },
+  textLinkText: { fontSize: 12, fontWeight: '700', color: '#0284C7' },
+  scrollContent: { gap: 12 },
+  formCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#E2E8F0', gap: 10 },
+  editingServiceNameTitle: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
+  editingCategorySubtitle: { fontSize: 11, color: '#64748B', fontWeight: '500', marginTop: -4 },
+  inputGroup: { gap: 4 },
+  label: { fontSize: 12, fontWeight: '700', color: '#0F172A' },
+  textInput: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 12, height: 44, paddingHorizontal: 12, fontSize: 13, color: '#0F172A', fontWeight: '500' },
+  rowSwitchContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 },
+  doctorsChipsContainer: { gap: 6 },
+  doctorChip: { flexDirection: 'row', alignItems: 'center', padding: 6, borderRadius: 12, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', gap: 8 },
+  doctorChipSelected: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
+  chipAvatar: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  chipAvatarText: { fontSize: 9, fontWeight: '700' },
+  doctorChipText: { fontSize: 12, fontWeight: '600', color: '#0F172A' },
   doctorChipTextSelected: { color: '#FFFFFF' },
-
-  formButtonsRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
-  cancelButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  cancelButtonText: { fontSize: 14, fontWeight: '700', color: '#475569' },
-  saveButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#087FC1',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveButtonText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
-  deleteButton: {
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 6,
-  },
-  deleteButtonText: { fontSize: 14, fontWeight: '700', color: '#EF4444' },
+  formButtonsRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  cancelButton: { flex: 1, height: 44, borderRadius: 12, borderWidth: 1, borderColor: '#CBD5E1', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  cancelButtonText: { fontSize: 13, fontWeight: '700', color: '#475569' },
+  saveButton: { flex: 1, height: 44, borderRadius: 12, backgroundColor: '#0F172A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  saveButtonText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  deleteButton: { height: 44, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FCA5A5', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  deleteButtonText: { fontSize: 13, fontWeight: '700', color: '#EF4444' },
 });
 
 export default XizmatQoshScreen;

@@ -15,6 +15,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AlertCircle,
@@ -152,7 +153,7 @@ function StatCell({ value, label, first }) {
 }
 
 /** @param {{ navigation: any, route: any, doctors?: Doctor[] }} props */
-export default function ClinicHome({ navigation, route, doctors = [] }) {
+export default function ClinicHome({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
@@ -165,6 +166,31 @@ export default function ClinicHome({ navigation, route, doctors = [] }) {
   const [detailsVisible, setDetailsVisible] = useState(false);
   const [doctorsVisible, setDoctorsVisible] = useState(false);
   const [profileVisible, setProfileVisible] = useState(false);
+  const [doctors, setDoctors] = useState([]);
+
+  // Shifokorlar backenddan keladi; AddDoctor dan qaytganda ham yangilanadi
+  const loadDoctors = useCallback(async () => {
+    try {
+      const res = await apiFetch('/clinics/doctors/me');
+      if (res?.ok) {
+        const data = await res.json();
+        setDoctors(
+          data.map((d) => ({
+            id: String(d.id),
+            name: d.name,
+            specialty: d.specialty,
+            experience: d.experience,
+          }))
+        );
+      }
+    } catch (error) {}
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDoctors();
+    }, [loadDoctors])
+  );
 
   // Bitta yagona kirish animatsiyasi: asosiy panel yumshoq paydo bo'ladi
   const heroAnim = useRef(new Animated.Value(0)).current;

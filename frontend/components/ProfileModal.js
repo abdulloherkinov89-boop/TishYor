@@ -32,6 +32,16 @@ const SNAP_HALF = SCREEN_HEIGHT * 0.45;
 const SNAP_FULL = 0;
 const SNAP_CLOSED = SCREEN_HEIGHT;
 
+const formatJoinDate = (value) => {
+  if (!value) return "Noma'lum";
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Noma'lum";
+
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 const ProfileModal = ({ visible, onClose, user, userPhone, userJoinDate }) => {
   const translateY = useRef(new Animated.Value(SNAP_CLOSED)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
@@ -86,12 +96,7 @@ const ProfileModal = ({ visible, onClose, user, userPhone, userJoinDate }) => {
           name: fullName || 'Foydalanuvchi',
           role: parsed.role || 'patient',
           phone: parsed.telefon || parsed.phone || 'Kiritilmagan',
-          joinDate: parsed.created_at
-            ? new Date(parsed.created_at).toLocaleDateString('uz-UZ', {
-                year: 'numeric',
-                month: 'long',
-              })
-            : "Noma'lum",
+          joinDate: parsed.created_at || '',
         });
       }
     } catch (e) {
@@ -103,7 +108,7 @@ const ProfileModal = ({ visible, onClose, user, userPhone, userJoinDate }) => {
   const displayName = user?.name || profileData.name || 'Foydalanuvchi';
   const displayRole = user?.role || profileData.role;
   const displayPhone = userPhone || profileData.phone || 'Kiritilmagan';
-  const displayJoinDate = userJoinDate || profileData.joinDate || "Noma'lum";
+  const displayJoinDate = formatJoinDate(userJoinDate || profileData.joinDate);
 
   const handleClose = () => {
     Animated.parallel([

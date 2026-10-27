@@ -6,7 +6,12 @@ import { navigate } from '../RootNavigation';
 
 const scriptUrl = NativeModules.SourceCode?.scriptURL || '';
 const scriptHost = scriptUrl.match(/^(?:https?|exp):\/\/([^/:]+)/)?.[1];
-const expoHost = Constants.expoConfig?.hostUri?.split(':')[0];
+const expoHostUri =
+  Constants.expoConfig?.hostUri ||
+  Constants.manifest2?.extra?.expoClient?.hostUri ||
+  Constants.manifest?.debuggerHost ||
+  Constants.manifest?.hostUri;
+const expoHost = expoHostUri?.split(':')[0];
 const API_HOST = Platform.OS === 'web' ? 'localhost' : expoHost || scriptHost || 'localhost';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${API_HOST}:8000`;
 

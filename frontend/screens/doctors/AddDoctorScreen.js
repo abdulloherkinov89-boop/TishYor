@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,17 +31,30 @@ import {
   Phone,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { apiFetch } from '../../utils/api';
 
-// Mutaxassisliklar va ularning narxlari (dollarda)
-const SPECIALTIES = [
-  { name: 'Implantolog', price: '$150' },
-  { name: 'Stomatolog-terapevt', price: '$30' },
-  { name: 'Ortodont', price: '$300' },
-  { name: 'Ortoped', price: '$100' },
-  { name: 'Jarroh-stomatolog', price: '$50' },
-  { name: 'Bolalar stomatologi', price: '$25' },
-  { name: 'Parodontolog', price: '$40' },
-];
+// Narxni "550 000 so'm" ko'rinishida chiqarish
+const formatSom = (v) =>
+  `${String(Math.round(Number(v) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} so'm`;
+
+// Backend javobini ekrandagi shifokor ko'rinishiga o'tkazish
+const mapDoctor = (d) => ({
+  id: String(d.id),
+  name: d.name,
+  phone: d.telefon,
+  specialty: d.specialty,
+  price: formatSom(d.price),
+  experience: d.experience || 'Tajriba ko‘rsatilmagan',
+  photo: d.photo_url,
+});
+
+const errorText = async (res) => {
+  try {
+    const p = await res.json();
+    if (typeof p.detail === 'string') return p.detail;
+  } catch (e) {}
+  return 'So‘rovni bajarib bo‘lmadi.';
+};
 
 // O'zbekiston raqamlarini avtomatik formatlash funksiyasi
 const formatUzbekPhoneNumber = (text) => {
@@ -76,8 +89,10 @@ const formatUzbekPhoneNumber = (text) => {
   return result;
 };
 
-const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
+const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) => {
   const insets = useSafeAreaInsets();
+  // navigate('AddDoctor') bilan ochilganda onClose kelmaydi — orqaga qaytamiz
+  const close = onClose || (() => navigation?.goBack?.());
 
   const [viewMode, setViewMode] = useState('empty');
 
@@ -91,6 +106,48 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
 
   // Dropdown uchun modal holati
   const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // Backenddan keladigan xizmatlar (mutaxassislik + narx)
+  const [services, setServices] = useState([]);
+
+  const loadServices = async () => {
+    try {
+      const res = await apiFetch('/clinics/services/me');
+      if (res?.ok) {
+        const list = await res.json();
+        setServices(list.filter((s) => s.active));
+      }
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/clinics/doctors/me');
+        if (res?.ok) {
+          const list = (await res.json()).map(mapDoctor);
+          setDoctors(list);
+          setViewMode(list.length ? 'list' : 'empty');
+        }
+      } catch (e) {}
+    })();
+    loadServices();
+  }, []);
+
+  const uploadPhoto = async (uri) => {
+    const form = new FormData();
+    if (Platform.OS === 'web') {
+      const blob = await (await fetch(uri)).blob();
+      form.append('file', blob, 'doctor.jpg');
+    } else {
+      const ext = (uri.split('.').pop() || 'jpg').toLowerCase();
+      const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      form.append('file', { uri, name: `doctor.${ext}`, type });
+    }
+    const res = await apiFetch('/clinics/doctors/upload-photo', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(await errorText(res));
+    return (await res.json()).photo_url;
+  };
 
   const handlePhoneChange = (text) => {
     const formatted = formatUzbekPhoneNumber(text);
@@ -134,18 +191,22 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
 
     setSaving(true);
     try {
-      const newDoc = {
-        id: `doctor-${Date.now()}`,
-        name: cleanName,
-        phone: cleanPhone,
-        specialty: selectedSpecialtyObj.name,
-        price: selectedSpecialtyObj.price,
-        experience: experience.trim() || 'Tajriba ko‘rsatilmagan',
-        photo: photoUri,
-      };
+      const photo_url = photoUri ? await uploadPhoto(photoUri) : null;
+      const res = await apiFetch('/clinics/doctors', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: cleanName,
+          telefon: cleanPhone.replace(/\s/g, ''),
+          service_id: selectedSpecialtyObj.id,
+          experience: experience.trim() || null,
+          photo_url,
+        }),
+      });
+      if (!res.ok) throw new Error(await errorText(res));
 
-      await onAddDoctor?.(newDoc);
-      setDoctors((prev) => [newDoc, ...prev]);
+      const saved = mapDoctor(await res.json());
+      await onAddDoctor?.(saved);
+      setDoctors((prev) => [saved, ...prev]);
 
       setName('');
       setPhone('');
@@ -154,7 +215,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
       setPhotoUri(null);
       setViewMode('list');
     } catch (error) {
-      Alert.alert('Saqlanmadi', 'Shifokorni saqlashda xatolik yuz berdi. Qayta urinib ko‘ring.');
+      Alert.alert('Saqlanmadi', error?.message || 'Shifokorni saqlashda xatolik yuz berdi. Qayta urinib ko‘ring.');
     } finally {
       setSaving(false);
     }
@@ -169,11 +230,17 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
         {
           text: "O'chirish",
           style: "destructive",
-          onPress: () => {
-            const updated = doctors.filter((doc) => doc.id !== id);
-            setDoctors(updated);
-            if (updated.length === 0) {
-              setViewMode('empty');
+          onPress: async () => {
+            try {
+              const res = await apiFetch(`/clinics/doctors/${id}`, { method: 'DELETE' });
+              if (!res.ok) throw new Error(await errorText(res));
+              const updated = doctors.filter((doc) => doc.id !== id);
+              setDoctors(updated);
+              if (updated.length === 0) {
+                setViewMode('empty');
+              }
+            } catch (e) {
+              Alert.alert('Xatolik', e?.message || 'Shifokorni o‘chirib bo‘lmadi.');
             }
           },
         },
@@ -193,7 +260,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
       animationType="slide"
       transparent={false}
       visible={visible}
-      onRequestClose={onClose}
+      onRequestClose={close}
       statusBarTranslucent
     >
       <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -203,14 +270,14 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
             accessibilityLabel="Ortga"
             onPress={() => {
               if (viewMode === 'form') setViewMode(doctors.length > 0 ? 'list' : 'empty');
-              else onClose?.();
+              else close();
             }}
             style={styles.backButton}
           >
             <ArrowLeft size={20} color="#12313A" />
           </Pressable>
           <Text style={styles.topTitle}>Klinika shifokorlari</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Yopish" onPress={onClose} style={styles.closeButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Yopish" onPress={close} style={styles.closeButton}>
             <X size={19} color="#647780" />
           </Pressable>
         </View>
@@ -370,12 +437,12 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
                   <Text style={styles.label}>Mutaxassisligi va narxi <Text style={styles.required}>*</Text></Text>
                   <TouchableOpacity
                     style={styles.inputWrap}
-                    onPress={() => setDropdownOpen(true)}
+                    onPress={() => { loadServices(); setDropdownOpen(true); }}
                     activeOpacity={0.8}
                   >
                     <BriefcaseMedical size={18} color="#82949B" />
                     <Text style={[styles.inputDropdownText, !selectedSpecialtyObj && { color: '#9AABB0' }]}>
-                      {selectedSpecialtyObj ? `${selectedSpecialtyObj.name} (${selectedSpecialtyObj.price})` : 'Mutaxassislikni tanlang'}
+                      {selectedSpecialtyObj ? `${selectedSpecialtyObj.name} (${formatSom(selectedSpecialtyObj.price)})` : 'Mutaxassislikni tanlang'}
                     </Text>
                     <ChevronDown size={18} color="#82949B" />
                   </TouchableOpacity>
@@ -414,7 +481,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
             ) : (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => setViewMode('form')}
+                onPress={() => { loadServices(); setViewMode('form'); }}
                 style={({ pressed }) => [styles.submitButton, pressed && styles.submitPressed]}
               >
                 <Plus size={19} color="#FFFFFF" />
@@ -445,11 +512,16 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
               </View>
 
               <ScrollView style={{ maxHeight: 350 }} showsVerticalScrollIndicator={false}>
-                {SPECIALTIES.map((item, index) => {
-                  const isSelected = selectedSpecialtyObj?.name === item.name;
+                {services.length === 0 && (
+                  <Text style={{ color: '#687C84', fontSize: 13, textAlign: 'center', padding: 18 }}>
+                    Hali xizmat qo‘shilmagan. Avval “Xizmatlar va narxlar” bo‘limida xizmat qo‘shing.
+                  </Text>
+                )}
+                {services.map((item) => {
+                  const isSelected = selectedSpecialtyObj?.id === item.id;
                   return (
                     <TouchableOpacity
-                      key={index}
+                      key={item.id}
                       style={[styles.modalOption, isSelected && styles.modalOptionSelected]}
                       onPress={() => {
                         setSelectedSpecialtyObj(item);
@@ -461,7 +533,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor }) => {
                       </Text>
                       
                       <View style={styles.priceBadge}>
-                        <Text style={styles.priceBadgeText}>{item.price}</Text>
+                        <Text style={styles.priceBadgeText}>{formatSom(item.price)}</Text>
                       </View>
                       
                       {isSelected && <Check size={18} color="#0E7C86" style={{ marginLeft: 8 }} />}

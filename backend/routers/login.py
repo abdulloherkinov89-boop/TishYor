@@ -56,5 +56,6 @@ def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
             "familiya": user.familiya,
             "telefon": user.telefon,
             "role": user.role,
+            "created_at": user.created_at,
         },
     )

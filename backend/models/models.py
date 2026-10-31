@@ -1,7 +1,8 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Column, DateTime, Enum as SqlEnum, Float, Integer, String
+from sqlalchemy import Column, DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, String
+from sqlalchemy.orm import relationship
 
 from database.db import Base
 
@@ -65,3 +66,18 @@ class Service(Base):
     duration = Column(String, default="30", nullable=False)
     active = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Doctor(Base):
+    __tablename__ = "doctors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    clinic_id = Column(Integer, nullable=False, index=True)
+    service_id = Column(Integer, ForeignKey("yaratish_xizmat.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    telefon = Column(String, unique=True, nullable=False)
+    experience = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    service = relationship("Service")

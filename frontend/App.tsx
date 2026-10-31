@@ -108,6 +108,7 @@ export default function App() {
             {({ navigation }) => (
               <AddDoctorScreen
                 visible
+                navigation={navigation}
                 onClose={() => navigation.goBack()}
                 onAddDoctor={handleAddDoctor}
               />

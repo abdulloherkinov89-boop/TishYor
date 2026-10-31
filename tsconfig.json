@@ -1,4 +1,9 @@
 {
-  "compilerOptions": {},
-  "extends": "expo/tsconfig.base"
+  "extends": "./frontend/tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["frontend/**/*.ts", "frontend/**/*.tsx"],
+  "exclude": ["frontend/node_modules", "frontend/dist", "node_modules"]
 }

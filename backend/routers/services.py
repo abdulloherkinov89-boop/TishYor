@@ -125,6 +125,11 @@ def delete_service(
 ):
     clinic_id = get_current_clinic_id(credentials)
     service = get_clinic_service(service_id, clinic_id, db)
+    if db.query(models.Doctor).filter(models.Doctor.service_id == service.id).first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bu xizmatga shifokor biriktirilgan. Avval shifokorni o'chiring yoki xizmatni nofaol qiling",
+        )
     db.delete(service)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -21,6 +21,7 @@ class UserOut(BaseModel):
     familiya: str
     telefon: str
     role: str
+    created_at: datetime
 
     class Config:
         from_attributes = True

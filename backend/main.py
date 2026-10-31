@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from database.db import Base, engine, migrate_clinic_schema
 import models
-from routers import clinics, login, register, services
+from routers import clinics, doctors, login, register, services   # <-- doctors qo'shildi
 
 Base.metadata.create_all(bind=engine)
 migrate_clinic_schema()
@@ -31,6 +31,7 @@ app.mount(
 
 app.include_router(clinics.router)
 app.include_router(services.router)
+app.include_router(doctors.router)     
 app.include_router(register.router)
 app.include_router(login.router)
 

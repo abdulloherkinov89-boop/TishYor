@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   Image,
   Linking,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -91,6 +92,9 @@ const formatUzbekPhoneNumber = (text) => {
 
 const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) => {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const isSmallScreen = width <= 360;
+
   // navigate('AddDoctor') bilan ochilganda onClose kelmaydi — orqaga qaytamiz
   const close = onClose || (() => navigation?.goBack?.());
 
@@ -102,6 +106,8 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
   const [selectedSpecialtyObj, setSelectedSpecialtyObj] = useState(null);
   const [experience, setExperience] = useState('');
   const [photoUri, setPhotoUri] = useState(null);
+  const [photoBase64, setPhotoBase64] = useState(null);
+  const [photoMime, setPhotoMime] = useState('image/jpeg');
   const [saving, setSaving] = useState(false);
 
   // Dropdown uchun modal holati
@@ -134,17 +140,11 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
     loadServices();
   }, []);
 
-  const uploadPhoto = async (uri) => {
-    const form = new FormData();
-    if (Platform.OS === 'web') {
-      const blob = await (await fetch(uri)).blob();
-      form.append('file', blob, 'doctor.jpg');
-    } else {
-      const ext = (uri.split('.').pop() || 'jpg').toLowerCase();
-      const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      form.append('file', { uri, name: `doctor.${ext}`, type });
-    }
-    const res = await apiFetch('/clinics/doctors/upload-photo', { method: 'POST', body: form });
+  const uploadPhoto = async () => {
+    const res = await apiFetch('/clinics/doctors/upload-photo', {
+      method: 'POST',
+      body: JSON.stringify({ image_base64: photoBase64, content_type: photoMime }),
+    });
     if (!res.ok) throw new Error(await errorText(res));
     return (await res.json()).photo_url;
   };
@@ -163,14 +163,18 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
+      base64: true,
       quality: 0.8,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setPhotoUri(result.assets[0].uri);
+      const asset = result.assets[0];
+      setPhotoUri(asset.uri);
+      setPhotoBase64(asset.base64 || null);
+      setPhotoMime(asset.mimeType || 'image/jpeg');
     }
   };
 
@@ -191,7 +195,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
 
     setSaving(true);
     try {
-      const photo_url = photoUri ? await uploadPhoto(photoUri) : null;
+      const photo_url = photoBase64 ? await uploadPhoto() : null;
       const res = await apiFetch('/clinics/doctors', {
         method: 'POST',
         body: JSON.stringify({
@@ -213,6 +217,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
       setSelectedSpecialtyObj(null);
       setExperience('');
       setPhotoUri(null);
+      setPhotoBase64(null);
       setViewMode('list');
     } catch (error) {
       Alert.alert('Saqlanmadi', error?.message || 'Shifokorni saqlashda xatolik yuz berdi. Qayta urinib ko‘ring.');
@@ -263,7 +268,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
       onRequestClose={close}
       statusBarTranslucent
     >
-      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.topBar}>
           <Pressable
             accessibilityRole="button"
@@ -284,8 +289,8 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
 
         <KeyboardAvoidingView
           style={styles.content}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={insets.top}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           {/* 1. BO'SH HOLAT */}
           {viewMode === 'empty' && (
@@ -302,7 +307,10 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
 
           {/* 2. SHIFOKORLAR RO'YXATI */}
           {viewMode === 'list' && (
-            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: 140 }]}
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.listHeaderRow}>
                 <View>
                   <Text style={styles.sectionHeaderTitle}>Jamoa a'zolari</Text>
@@ -315,45 +323,42 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
 
               {doctors.map((doc) => (
                 <View key={doc.id} style={styles.doctorItemCard}>
-                  {/* CHAP TARAFI: AVATAR + MA'LUMOTLAR */}
-                  <View style={styles.docLeftSection}>
-                    <View style={styles.avatarWrapper}>
-                      {doc.photo ? (
-                        <Image source={{ uri: doc.photo }} style={styles.docAvatarImage} />
-                      ) : (
-                        <View style={styles.docAvatar}>
-                          <UserRound size={26} color="#0E7C86" />
+                  {/* Yuqori qator: Avatar, Ism, Tel, Tajriba + O'chirish tugmasi */}
+                  <View style={styles.cardTopRow}>
+                    <View style={styles.docLeftSection}>
+                      <View style={styles.avatarWrapper}>
+                        {doc.photo ? (
+                          <Image source={{ uri: doc.photo }} style={styles.docAvatarImage} />
+                        ) : (
+                          <View style={styles.docAvatar}>
+                            <UserRound size={26} color="#0E7C86" />
+                          </View>
+                        )}
+                      </View>
+
+                      <View style={styles.docInfo}>
+                        <Text style={styles.docName} numberOfLines={1} ellipsizeMode="tail">
+                          {doc.name}
+                        </Text>
+
+                        <TouchableOpacity
+                          style={styles.phoneRow}
+                          onPress={() => handleCall(doc.phone)}
+                          activeOpacity={0.7}
+                        >
+                          <Phone size={13} color="#0E7C86" />
+                          <Text style={styles.docPhone} numberOfLines={1} ellipsizeMode="tail">
+                            {doc.phone}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.experienceRow}>
+                          <Clock3 size={13} color="#82949B" />
+                          <Text style={styles.docExperience} numberOfLines={1} ellipsizeMode="tail">
+                            Tajriba: {doc.experience}
+                          </Text>
                         </View>
-                      )}
-                    </View>
-
-                    <View style={styles.docInfo}>
-                      <Text style={styles.docName}>{doc.name}</Text>
-
-                      <TouchableOpacity
-                        style={styles.phoneRow}
-                        onPress={() => handleCall(doc.phone)}
-                        activeOpacity={0.7}
-                      >
-                        <Phone size={13} color="#0E7C86" />
-                        <Text style={styles.docPhone}>{doc.phone}</Text>
-                      </TouchableOpacity>
-
-                      <View style={styles.experienceRow}>
-                        <Clock3 size={13} color="#82949B" />
-                        <Text style={styles.docExperience}>Tajriba: {doc.experience}</Text>
                       </View>
-                    </View>
-                  </View>
-
-                  {/* O'NG TARAFI: MUTAXASSISLIK VA NARX BITTA QATorda + DELETE */}
-                  <View style={styles.docRightSection}>
-                    <View style={styles.specialtyAndPriceRow}>
-                      <View style={styles.specialtyBadge}>
-                        <Award size={12} color="#0E7C86" style={{ marginRight: 4 }} />
-                        <Text style={styles.docSpecialty}>{doc.specialty}</Text>
-                      </View>
-                      <Text style={styles.docPriceText}>{doc.price}</Text>
                     </View>
 
                     <TouchableOpacity
@@ -364,6 +369,21 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
                       <Trash2 size={18} color="#E53935" />
                     </TouchableOpacity>
                   </View>
+
+                  {/* Pastki qator: Mutaxassislik va Narx */}
+                  <View style={styles.cardBottomRow}>
+                    <View style={styles.specialtyBadge}>
+                      <Award size={13} color="#0E7C86" style={{ marginRight: 4 }} />
+                      <Text style={styles.docSpecialty} numberOfLines={2} ellipsizeMode="tail">
+                        {doc.specialty}
+                      </Text>
+                    </View>
+                    <View style={styles.priceBadge}>
+                      <Text style={styles.docPriceText} numberOfLines={1} ellipsizeMode="tail">
+                        {doc.price}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               ))}
             </ScrollView>
@@ -372,11 +392,11 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
           {/* 3. DOKTOR QO'SHISH FORMASI */}
           {viewMode === 'form' && (
             <ScrollView
-              contentContainerStyle={styles.scrollContent}
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: 140 }]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.formCard}>
+              <View style={[styles.formCard, isSmallScreen && { padding: 12 }]}>
                 <Text style={styles.sectionTitle}>Shifokor ma’lumotlari</Text>
 
                 <View style={styles.photoUploadContainer}>
@@ -441,7 +461,11 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
                     activeOpacity={0.8}
                   >
                     <BriefcaseMedical size={18} color="#82949B" />
-                    <Text style={[styles.inputDropdownText, !selectedSpecialtyObj && { color: '#9AABB0' }]}>
+                    <Text
+                      style={[styles.inputDropdownText, !selectedSpecialtyObj && { color: '#9AABB0' }]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
                       {selectedSpecialtyObj ? `${selectedSpecialtyObj.name} (${formatSom(selectedSpecialtyObj.price)})` : 'Mutaxassislikni tanlang'}
                     </Text>
                     <ChevronDown size={18} color="#82949B" />
@@ -467,7 +491,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
           )}
 
           {/* PASTKI TUGMA */}
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             {viewMode === 'form' ? (
               <Pressable
                 accessibilityRole="button"
@@ -503,7 +527,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
             activeOpacity={1}
             onPress={() => setDropdownOpen(false)}
           >
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, { maxHeight: height * 0.6 }]}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Mutaxassislik va narx</Text>
                 <TouchableOpacity onPress={() => setDropdownOpen(false)}>
@@ -511,7 +535,7 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
                 </TouchableOpacity>
               </View>
 
-              <ScrollView style={{ maxHeight: 350 }} showsVerticalScrollIndicator={false}>
+              <ScrollView showsVerticalScrollIndicator={false}>
                 {services.length === 0 && (
                   <Text style={{ color: '#687C84', fontSize: 13, textAlign: 'center', padding: 18 }}>
                     Hali xizmat qo‘shilmagan. Avval “Xizmatlar va narxlar” bo‘limida xizmat qo‘shing.
@@ -528,15 +552,21 @@ const AddDoctorScreen = ({ visible = true, onClose, onAddDoctor, navigation }) =
                         setDropdownOpen(false);
                       }}
                     >
-                      <Text style={[styles.modalOptionText, isSelected && styles.modalOptionTextSelected]}>
+                      <Text
+                        style={[styles.modalOptionText, isSelected && styles.modalOptionTextSelected]}
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                      >
                         {item.name}
                       </Text>
                       
-                      <View style={styles.priceBadge}>
-                        <Text style={styles.priceBadgeText}>{formatSom(item.price)}</Text>
+                      <View style={styles.modalPriceBadge}>
+                        <Text style={styles.modalPriceBadgeText} numberOfLines={1} ellipsizeMode="tail">
+                          {formatSom(item.price)}
+                        </Text>
                       </View>
                       
-                      {isSelected && <Check size={18} color="#0E7C86" style={{ marginLeft: 8 }} />}
+                      {isSelected && <Check size={18} color="#0E7C86" style={{ marginLeft: 8, flexShrink: 0 }} />}
                     </TouchableOpacity>
                   );
                 })}
@@ -566,7 +596,7 @@ const styles = StyleSheet.create({
   closeButton: { width: 38, height: 38, alignItems: 'flex-end', justifyContent: 'center' },
   topTitle: { color: '#12313A', fontSize: 16, fontWeight: '800' },
   content: { flex: 1 },
-  scrollContent: { padding: 18, paddingBottom: 24 },
+  scrollContent: { padding: 18 },
 
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   emptyIconBox: { width: 80, height: 80, borderRadius: 28, backgroundColor: '#E2F3F2', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
@@ -591,9 +621,6 @@ const styles = StyleSheet.create({
   listCountBadge: { color: '#0E7C86', fontSize: 12, fontWeight: '700' },
 
   doctorItemCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     padding: 14,
     borderRadius: 18,
@@ -606,15 +633,32 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  cardBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F4F5',
+    paddingTop: 10,
+    gap: 8,
+  },
   docLeftSection: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
     marginRight: 8,
   },
   avatarWrapper: {
     position: 'relative',
     marginRight: 12,
+    flexShrink: 0,
   },
   docAvatar: {
     width: 54,
@@ -631,30 +675,24 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 18,
   },
-  docInfo: { flex: 1 },
+  docInfo: { flex: 1, minWidth: 0 },
   docName: { color: '#12313A', fontSize: 15, fontWeight: '700', marginBottom: 4 },
 
-  // O'NG TOMON (Mutaxassislik va Narx bitta qatorda)
-  docRightSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  specialtyAndPriceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0F7F7',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    gap: 8,
-  },
   specialtyBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
   },
-  docSpecialty: { color: '#0E7C86', fontSize: 12, fontWeight: '700', marginLeft: 3 },
-  docPriceText: { color: '#0E7C86', fontSize: 13, fontWeight: '800' },
+  docSpecialty: { color: '#0E7C86', fontSize: 12, fontWeight: '700', flexShrink: 1 },
+  priceBadge: {
+    backgroundColor: '#E0F2F1',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    flexShrink: 0,
+  },
+  docPriceText: { color: '#0E7C86', fontSize: 12, fontWeight: '800' },
 
   phoneRow: {
     flexDirection: 'row',
@@ -669,6 +707,7 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: '#FDF2F2',
     borderRadius: 10,
+    flexShrink: 0,
   },
 
   // Form Styles
@@ -756,23 +795,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#12313A',
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 8,
   },
   modalOptionTextSelected: {
     color: '#0E7C86',
   },
-  priceBadge: {
+  modalPriceBadge: {
     backgroundColor: '#E0F2F1',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 8,
+    flexShrink: 0,
   },
-  priceBadgeText: {
-    fontSize: 13,
+  modalPriceBadgeText: {
+    fontSize: 12,
     fontWeight: '800',
     color: '#0E7C86',
   },
 
-  footer: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E4ECEE' },
+  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E4ECEE', zIndex: 10 },
   submitButton: {
     minHeight: 52,
     borderRadius: 15,
@@ -783,6 +826,7 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   submitPressed: { opacity: 0.88, transform: [{ scale: 0.99 }] },
+  submitReleased: { opacity: 1 },
   submitText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
 });
 

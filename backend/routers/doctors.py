@@ -1,7 +1,10 @@
+import base64
+import binascii
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -13,6 +16,11 @@ from .services import bearer_scheme, get_current_clinic_id
 
 router = APIRouter(prefix="/clinics/doctors", tags=["Klinika shifokorlari"])
 PHOTOS_DIR = UPLOADS_DIR / "doctors"
+
+
+class PhotoUpload(BaseModel):
+    image_base64: str
+    content_type: str = "image/jpeg"
 
 
 def to_out(d: models.Doctor) -> schemas.DoctorOut:
@@ -30,17 +38,21 @@ def to_out(d: models.Doctor) -> schemas.DoctorOut:
 
 
 @router.post("/upload-photo", summary="Doktor rasmini yuklash")
-async def upload_doctor_photo(
+def upload_doctor_photo(
+    data: PhotoUpload,
     request: Request,
-    file: UploadFile = File(...),
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ):
     get_current_clinic_id(credentials)
-    image_type = IMAGE_TYPES.get(file.content_type or "")
+    image_type = IMAGE_TYPES.get(data.content_type)
     if image_type is None:
         raise HTTPException(status_code=400, detail="Faqat rasm fayllarini yuklash mumkin")
 
-    content = await file.read(MAX_LOGO_SIZE + 1)
+    try:
+        content = base64.b64decode(data.image_base64.split(",")[-1], validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="Rasm ma'lumoti noto'g'ri")
+
     if len(content) > MAX_LOGO_SIZE:
         raise HTTPException(status_code=413, detail="Rasm hajmi 5 MB dan oshmasligi kerak")
     if not image_type[1](content):

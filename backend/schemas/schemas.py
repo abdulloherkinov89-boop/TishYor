@@ -130,3 +130,24 @@ class ServiceOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# shifokorlar
+class DoctorCreate(BaseModel):
+    name: str
+    telefon: str
+    service_id: int
+    experience: Optional[str] = None
+    photo_url: Optional[str] = None
+
+
+class DoctorOut(BaseModel):
+    id: int
+    clinic_id: int
+    name: str
+    telefon: str
+    experience: Optional[str] = None
+    photo_url: Optional[str] = None
+    service_id: int
+    specialty: str   # xizmat nomi
+    price: float     # xizmat narxi (so'm)

@@ -12,6 +12,7 @@ from auth.auth import create_access_token, decode_access_token
 from database.db import get_db
 import models.models as models
 import schemas.schemas as schemas
+from .services import get_current_clinic_id
 
 router = APIRouter(prefix="/clinics", tags=["Klinikalar"])
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -163,6 +164,29 @@ def get_my_clinic(
     if clinic is None:
         raise HTTPException(status_code=404, detail="Klinika topilmadi")
     return clinic
+
+
+@router.get("/me/stats", response_model=schemas.ClinicStats, summary="Joriy klinika statistikasi")
+def get_my_clinic_stats(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+):
+    clinic_id = get_current_clinic_id(credentials)
+    clinic = db.query(models.Clinic).filter(models.Clinic.id == clinic_id).first()
+    if clinic is None:
+        raise HTTPException(status_code=404, detail="Klinika topilmadi")
+
+    doctors_count = (
+        db.query(func.count(models.Doctor.id))
+        .filter(models.Doctor.clinic_id == clinic_id)
+        .scalar()
+        or 0
+    )
+    return schemas.ClinicStats(
+        patients_served=clinic.patients_served or 0,
+        rating=clinic.rating or "Yangi",
+        doctors_count=doctors_count,
+    )
 
 
 @router.delete(

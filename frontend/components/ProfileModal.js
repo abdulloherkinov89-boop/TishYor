@@ -1,623 +1,527 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Modal,
-  View,
-  Text,
   StyleSheet,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  Animated,
-  PanResponder,
-  Dimensions,
+  Text,
+  View,
   ScrollView,
-  Switch,
+  TouchableOpacity,
+  Image,
+  StatusBar,
+  Animated,
+  RefreshControl,
 } from 'react-native';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  X,
-  User,
-  CalendarCheck,
-  Settings,
-  LogOut,
-  Phone,
-  Calendar,
+  Search,
   ChevronRight,
-  Moon,
-  Bell,
+  Home,
+  MessageCircle,
+  User,
+  Star,
 } from 'lucide-react-native';
-import { resetRoot } from '../RootNavigation';
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-const SNAP_HALF = SCREEN_HEIGHT * 0.45;
-const SNAP_FULL = 0;
-const SNAP_CLOSED = SCREEN_HEIGHT;
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 
-const formatJoinDate = (value) => {
-  if (!value) return "Noma'lum";
+import { apiFetch } from '../utils/api';
+import ProfileModal from './ProfileModal';
+import ClinicDetailModal from '../components/ClinicDetailModal';
 
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "Noma'lum";
+const BLUE = '#0083CA';
 
-  const pad = (part) => String(part).padStart(2, '0');
-  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-};
+const FILTERS = [
+  'Yaqin klinikalar',
+  "Reyting bo'yicha",
+  'Arzon narx',
+  'Ochiq hozir',
+];
 
-const ProfileModal = ({ visible, onClose, user, userPhone, userJoinDate }) => {
-  const translateY = useRef(new Animated.Value(SNAP_CLOSED)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const [snapState, setSnapState] = useState('HALF');
-  const [scrollOffset, setScrollOffset] = useState(0);
+// ======================================
+// TAB BUTTON
+// ======================================
 
-  // === 1. HAQIQIY MA'LUMOTLARNI SAQLASH UCHUN STATE VA FUNKSIYALAR ===
-  const [profileData, setProfileData] = useState({
-    name: '',
-    role: 'patient',
-    phone: '',
-    joinDate: '',
-  });
+function TabButton({ icon: Icon, label, isActive, onPress, onLayout }) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={onPress}
+      onLayout={onLayout}
+      style={styles.tabItem}
+    >
+      {isActive ? (
+        <View style={styles.activeTab}>
+          <Icon size={20} color={BLUE} />
+          <Text style={styles.activeTabText}>{label}</Text>
+        </View>
+      ) : (
+        <Icon size={21} color="#94A3B8" />
+      )}
+    </TouchableOpacity>
+  );
+}
 
-  // === 2 va 3. SOZLAMALAR UCHUN STATELAR ===
-  // Hozircha faqat local state; haqiqiy tema/bildirishnoma o'zgarishi keyinroq butun ilova context/store'iga ulanadi.
-  const [darkMode, setDarkMode] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+// ======================================
+// SKELETON LOADER CARD
+// ======================================
+
+function SkeletonClinicCard() {
+  const opacity = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
-    if (visible) {
-      loadUserData();
-      setSnapState('HALF');
-      Animated.parallel([
-        Animated.spring(translateY, {
-          toValue: SNAP_HALF,
-          tension: 65,
-          friction: 11,
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.7,
+          duration: 800,
           useNativeDriver: true,
         }),
-        Animated.timing(backdropOpacity, {
-          toValue: 0.4,
-          duration: 250,
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 800,
           useNativeDriver: true,
         }),
-      ]).start();
+      ])
+    ).start();
+  }, [opacity]);
+
+  return (
+    <Animated.View style={[styles.clinicCard, { opacity }]}>
+      <View style={[styles.logoContainer, { backgroundColor: '#E2E8F0', borderRadius: 13 }]} />
+      <View style={styles.clinicInfo}>
+        <View style={styles.clinicTopRow}>
+          <View style={{ width: '50%', height: 12, backgroundColor: '#E2E8F0', borderRadius: 6 }} />
+          <View style={{ width: 30, height: 12, backgroundColor: '#E2E8F0', borderRadius: 6 }} />
+        </View>
+        <View style={{ width: '70%', height: 10, backgroundColor: '#E2E8F0', borderRadius: 5, marginBottom: 6 }} />
+        <View style={{ width: '40%', height: 10, backgroundColor: '#E2E8F0', borderRadius: 5, marginBottom: 8 }} />
+        <View style={{ width: '60%', height: 9, backgroundColor: '#E2E8F0', borderRadius: 4 }} />
+      </View>
+    </Animated.View>
+  );
+}
+
+// ======================================
+// CLINIC CARD
+// ======================================
+
+function ClinicCard({ clinic, onPress }) {
+  const gradientStart = clinic.gradient_start || '#43BCEB';
+  const gradientEnd = clinic.gradient_end || '#0083CA';
+  const hasRating = clinic.rating != null && !isNaN(Number(clinic.rating)) && Number(clinic.rating) > 0;
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      style={styles.clinicCard}
+      onPress={onPress}
+    >
+      <View style={styles.logoContainer}>
+        {clinic.logo_url ? (
+          <Image
+            source={{ uri: clinic.logo_url }}
+            style={styles.clinicLogo}
+            resizeMode="cover"
+          />
+        ) : (
+          <LinearGradient
+            colors={[gradientStart, gradientEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.clinicLogo}
+          >
+            <Text style={styles.logoText}>
+              {clinic.name?.[0]?.toUpperCase() || 'K'}
+            </Text>
+          </LinearGradient>
+        )}
+        <View style={styles.onlineBadge} />
+      </View>
+
+      <View style={styles.clinicInfo}>
+        <View style={styles.clinicTopRow}>
+          <Text numberOfLines={1} style={styles.clinicName}>
+            {clinic.name}
+          </Text>
+          <View style={styles.ratingContainer}>
+            <Star size={14} color={BLUE} fill={hasRating ? BLUE : 'none'} />
+            <Text style={styles.ratingText}>
+              {hasRating ? Number(clinic.rating).toFixed(1) : 'Yangi'}
+            </Text>
+          </View>
+        </View>
+
+        <Text numberOfLines={1} style={styles.clinicAddress}>
+          {clinic.address || 'Manzil mavjud emas'}
+        </Text>
+
+        {clinic.patients_served != null && (
+          <Text numberOfLines={1} style={styles.patientsText}>
+            {clinic.patients_served} ta bemor xizmat oldi
+          </Text>
+        )}
+
+        <View style={styles.clinicBottomRow}>
+          <Text style={styles.distanceText}>
+            {clinic.distance != null ? `${clinic.distance} km` : 'Masofa mavjud emas'}
+          </Text>
+          <View style={styles.dot} />
+          <View style={styles.openStatus}>
+            <Text style={styles.openStatusText}>
+              {clinic.is_open === false ? 'Yopiq' : 'Ochiq'}
+            </Text>
+          </View>
+          <Text style={styles.workingHours}>
+            {clinic.working_hours || '09:00–20:00'}
+          </Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ======================================
+// HOME SCREEN
+// ======================================
+
+export default function HomeScreen() {
+  const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+
+  const [userName, setUserName] = useState('Aziza Karimova');
+  const [userInitials, setUserInitials] = useState('AK');
+
+  const [activeFilter, setActiveFilter] = useState(FILTERS[0]);
+  const [activeTab, setActiveTab] = useState('Bosh sahifa');
+  const [selectedTab, setSelectedTab] = useState('Bosh sahifa');
+
+  const [profileVisible, setProfileVisible] = useState(false);
+  const previousTab = useRef('Bosh sahifa');
+
+  const [selectedClinic, setSelectedClinic] = useState(null);
+  const [clinicDetailVisible, setClinicDetailVisible] = useState(false);
+
+  const [clinics, setClinics] = useState([]);
+  const [loadingClinics, setLoadingClinics] = useState(true);
+  const [refreshingClinics, setRefreshingClinics] = useState(false);
+  const [clinicsError, setClinicsError] = useState(null);
+
+  const fetchClinics = async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshingClinics(true);
     } else {
-      translateY.setValue(SNAP_CLOSED);
-      backdropOpacity.setValue(0);
+      setLoadingClinics(true);
     }
-  }, [visible]);
+    setClinicsError(null);
+
+    try {
+      const response = await apiFetch('/clinics/');
+      if (!response.ok) {
+        throw new Error(`Klinikalarni yuklashda xatolik (${response.status})`);
+      }
+      const data = await response.json();
+      setClinics(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setClinicsError(error.message || 'Ulanishda xatolik yuz berdi');
+    } finally {
+      setLoadingClinics(false);
+      setRefreshingClinics(false);
+    }
+  };
 
   const loadUserData = async () => {
     try {
       const storedUser = await AsyncStorage.getItem('user');
       if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        const firstName = parsed.ism || parsed.firstName || parsed.name || '';
-        const lastName = parsed.familiya || parsed.lastName || '';
-        const fullName = `${firstName} ${lastName}`.trim();
-        setProfileData({
-          name: fullName || 'Foydalanuvchi',
-          role: parsed.role || 'patient',
-          phone: parsed.telefon || parsed.phone || 'Kiritilmagan',
-          joinDate: parsed.created_at || '',
-        });
-      }
-    } catch (e) {
-      console.log("Profil ma'lumotini o'qishda xato:", e);
-    }
-  };
-
-  // Ma'lumotlarni prop yoki AsyncStorage dan olingan state orqali ustunlik bo'yicha aniqlash
-  const displayName = user?.name || profileData.name || 'Foydalanuvchi';
-  const displayRole = user?.role || profileData.role;
-  const displayPhone = userPhone || profileData.phone || 'Kiritilmagan';
-  const displayJoinDate = formatJoinDate(userJoinDate || profileData.joinDate);
-
-  const handleClose = () => {
-    Animated.parallel([
-      Animated.timing(translateY, {
-        toValue: SNAP_CLOSED,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onClose();
-    });
-  };
-
-  const currentSnapState = useRef(snapState);
-  currentSnapState.current = snapState;
-
-  const scrollOffsetRef = useRef(scrollOffset);
-  scrollOffsetRef.current = scrollOffset;
-
-  // Bitta bosishdayoq birnoiz tutib olish uchun PanResponder
-  const panResponder = useRef(
-    PanResponder.create({
-      // Birinchi bosilgandayoq harakatni darhol qabul qilish
-      onStartShouldSetPanResponder: () => true,
-      onStartShouldSetPanResponderCapture: () => false,
-
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        const { dy } = gestureState;
-        const isHalf = currentSnapState.current === 'HALF';
-
-        if (isHalf) return true;
-        if (!isHalf && scrollOffsetRef.current <= 0 && dy > 0) return true;
-
-        return false;
-      },
-
-      onPanResponderGrant: () => {
-        translateY.extractOffset();
-      },
-
-      onPanResponderMove: (_, gestureState) => {
-        translateY.setValue(gestureState.dy);
-      },
-
-      onPanResponderRelease: (_, gestureState) => {
-        translateY.flattenOffset();
-        const { dy, vy } = gestureState;
-        const isHalf = currentSnapState.current === 'HALF';
-
-        if (isHalf) {
-          if (dy < -40 || vy < -0.2) {
-            setSnapState('FULL');
-            Animated.spring(translateY, {
-              toValue: SNAP_FULL,
-              tension: 65,
-              friction: 11,
-              useNativeDriver: true,
-            }).start();
-          } else if (dy > 60 || vy > 0.3) {
-            handleClose();
-          } else {
-            Animated.spring(translateY, {
-              toValue: SNAP_HALF,
-              tension: 65,
-              friction: 11,
-              useNativeDriver: true,
-            }).start();
-          }
-        } else {
-          if (dy > 60 || vy > 0.3) {
-            setSnapState('HALF');
-            Animated.spring(translateY, {
-              toValue: SNAP_HALF,
-              tension: 65,
-              friction: 11,
-              useNativeDriver: true,
-            }).start();
-          } else {
-            Animated.spring(translateY, {
-              toValue: SNAP_FULL,
-              tension: 65,
-              friction: 11,
-              useNativeDriver: true,
-            }).start();
-          }
+        const parsedUser = JSON.parse(storedUser);
+        const firstName = parsedUser.ism || parsedUser.firstName || parsedUser.name || '';
+        const lastName = parsedUser.familiya || parsedUser.lastName || '';
+        if (firstName || lastName) {
+          const full = `${firstName} ${lastName}`.trim();
+          setUserName(full);
+          const firstLetter = firstName ? firstName[0].toUpperCase() : '';
+          const lastLetter = lastName ? lastName[0].toUpperCase() : '';
+          setUserInitials(`${firstLetter}${lastLetter}` || 'M');
         }
-      },
-    })
-  ).current;
-
-  const getInitials = (name) => {
-    if (!name) return 'U';
-    const parts = name.trim().split(' ');
-    if (parts.length >= 2) {
-      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
-  };
-
-  const handleLogout = async () => {
-    try {
-      await AsyncStorage.multiRemove(['token', 'user', 'role']);
-      handleClose();
-      resetRoot('Login');
+      }
     } catch (error) {
-      console.error('Logout error:', error);
+      console.log('User data error:', error);
     }
   };
 
-  if (!visible) return null;
+  useFocusEffect(
+    useCallback(() => {
+      loadUserData();
+      fetchClinics();
+    }, [])
+  );
+
+  const filteredClinics = [...clinics].sort((a, b) => {
+    if (activeFilter === "Reyting bo'yicha") {
+      return Number(b.rating || 0) - Number(a.rating || 0);
+    }
+    if (activeFilter === 'Yaqin klinikalar') {
+      return Number(a.distance || 999999) - Number(b.distance || 999999);
+    }
+    if (activeFilter === 'Ochiq hozir') {
+      return Number(b.is_open === true) - Number(a.is_open === true);
+    }
+    return 0;
+  });
+
+  const handleTabPress = (tabName) => {
+    setSelectedTab(tabName);
+    if (tabName === 'Profil') {
+      previousTab.current = activeTab;
+      setProfileVisible(true);
+      return;
+    }
+    setActiveTab(tabName);
+  };
+
+  const handleProfileClose = () => {
+    setProfileVisible(false);
+    setSelectedTab(previousTab.current);
+  };
 
   return (
-    <Modal
-      animationType="none"
-      transparent={true}
-      visible={visible}
-      onRequestClose={handleClose}
-    >
-      <View style={styles.overlayContainer}>
-        <TouchableWithoutFeedback onPress={handleClose}>
-          <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
-        </TouchableWithoutFeedback>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-        <Animated.View
-          style={[
-            styles.sheetContainer,
-            { transform: [{ translateY }] },
-          ]}
-          {...panResponder.panHandlers}
-        >
-          {/* Tepadagi kichik tutqich */}
-          <View style={styles.dragHandleZone}>
-            <View style={styles.dragHandle} />
+      {/* HEADER */}
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.profileSection}>
+          <View>
+            <Text style={styles.greetingText}>Xayrli kun</Text>
+            <Text style={styles.userNameText}>{userName}</Text>
           </View>
-
-          {/* Sarlavha (Header) */}
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Profil</Text>
-            <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-              <X size={20} color="#64748B" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            scrollEnabled={snapState === 'FULL'}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-            onScroll={(e) => setScrollOffset(e.nativeEvent.contentOffset.y)}
-            scrollEventThrottle={16}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={styles.avatar}
+            onPress={() => handleTabPress('Profil')}
           >
-            {/* Profil karta */}
-            <View style={styles.profileCard}>
-              <View style={styles.avatarContainer}>
-                <Text style={styles.avatarText}>{getInitials(displayName)}</Text>
-              </View>
-              <View style={styles.userInfo}>
-                <Text style={styles.userName}>{displayName}</Text>
-                <Text style={styles.userRole}>
-                  {displayRole === 'doctor' ? 'Shifokor' : 'Bemor'}
-                </Text>
-              </View>
-            </View>
+            <Text style={styles.avatarText}>{userInitials}</Text>
+          </TouchableOpacity>
+        </View>
 
-            {/* Statistika */}
-            <View style={styles.statsRow}>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>12</Text>
-                <Text style={styles.statLabel}>Qabullar</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>3</Text>
-                <Text style={styles.statLabel}>Klinikalar</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>4.8</Text>
-                <Text style={styles.statLabel}>Reyting</Text>
-              </View>
-            </View>
-
-            {/* Shaxsiy Ma'lumotlar */}
-            <View style={styles.sectionContainer}>
-              <Text style={styles.sectionHeaderTitle}>SHAXSIY MA'LUMOTLAR</Text>
-              <View style={styles.infoCard}>
-                <View style={styles.infoRow}>
-                  <View style={styles.iconCircle}>
-                    <Phone size={18} color="#0083CA" />
-                  </View>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={styles.infoLabel}>Telefon raqam</Text>
-                    <Text style={styles.infoValue}>{displayPhone}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.divider} />
-
-                <View style={styles.infoRow}>
-                  <View style={styles.iconCircle}>
-                    <Calendar size={18} color="#0083CA" />
-                  </View>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={styles.infoLabel}>A'zo bo'lgan sana</Text>
-                    <Text style={styles.infoValue}>{displayJoinDate}</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-
-            {/* Sozlamalar */}
-            <View style={styles.sectionContainer}>
-              <Text style={styles.sectionHeaderTitle}>SOZLAMALAR</Text>
-              <View style={styles.infoCard}>
-                <View style={styles.switchRow}>
-                  <View style={styles.switchLeft}>
-                    <View style={styles.iconCircle}>
-                      <Moon size={18} color="#0083CA" />
-                    </View>
-                    <Text style={styles.switchLabel}>Qorong'i rejim</Text>
-                  </View>
-                  <Switch
-                    value={darkMode}
-                    onValueChange={setDarkMode}
-                    trackColor={{ false: '#E2E8F0', true: '#0083CA' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-
-                <View style={styles.divider} />
-
-                <View style={styles.switchRow}>
-                  <View style={styles.switchLeft}>
-                    <View style={styles.iconCircle}>
-                      <Bell size={18} color="#0083CA" />
-                    </View>
-                    <Text style={styles.switchLabel}>Bildirishnomalar</Text>
-                  </View>
-                  <Switch
-                    value={notificationsEnabled}
-                    onValueChange={setNotificationsEnabled}
-                    trackColor={{ false: '#E2E8F0', true: '#0083CA' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-              </View>
-            </View>
-
-            {/* Menyu */}
-            <View style={styles.sectionContainer}>
-              <Text style={styles.sectionHeaderTitle}>HISOB</Text>
-              <View style={styles.menuCard}>
-                <TouchableOpacity style={styles.menuItem}>
-                  <View style={styles.menuLeft}>
-                    <User size={20} color="#0083CA" />
-                    <Text style={styles.menuItemText}>Profilni tahrirlash</Text>
-                  </View>
-                  <ChevronRight size={18} color="#94A3B8" />
-                </TouchableOpacity>
-
-                <View style={styles.divider} />
-
-                <TouchableOpacity style={styles.menuItem}>
-                  <View style={styles.menuLeft}>
-                    <CalendarCheck size={20} color="#0083CA" />
-                    <Text style={styles.menuItemText}>Mening qabullarim</Text>
-                  </View>
-                  <ChevronRight size={18} color="#94A3B8" />
-                </TouchableOpacity>
-
-                <View style={styles.divider} />
-
-                <TouchableOpacity style={styles.menuItem}>
-                  <View style={styles.menuLeft}>
-                    <Settings size={20} color="#0083CA" />
-                    <Text style={styles.menuItemText}>Sozlamalar</Text>
-                  </View>
-                  <ChevronRight size={18} color="#94A3B8" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Chiqish tugmasi */}
-            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-              <LogOut size={20} color="#EF4444" />
-              <Text style={styles.logoutText}>Chiqish</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </Animated.View>
+        {/* SEARCH */}
+        <TouchableOpacity activeOpacity={0.8} style={styles.searchContainer}>
+          <Search color="#94A3B8" size={19} />
+          <Text style={styles.searchPlaceholder}>Klinika yoki xizmat qidirish</Text>
+        </TouchableOpacity>
       </View>
-    </Modal>
+
+      {/* MAIN CONTENT */}
+      {activeTab === 'Bosh sahifa' ? (
+        <ScrollView
+          style={styles.contentArea}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 25 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshingClinics}
+              onRefresh={() => fetchClinics(true)}
+              tintColor={BLUE}
+              colors={[BLUE]}
+            />
+          }
+        >
+          {/* FILTERS */}
+          <View style={styles.filtersSection}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersContent}>
+              {FILTERS.map((filter) => {
+                const isActive = activeFilter === filter;
+                return (
+                  <TouchableOpacity
+                    key={filter}
+                    activeOpacity={0.75}
+                    onPress={() => setActiveFilter(filter)}
+                    style={[styles.filterChip, isActive && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterText, isActive && styles.filterTextActive]}>
+                      {filter}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* CLINICS SECTION */}
+          <View style={styles.clinicsSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Klinikalar</Text>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.seeAllButton}
+                onPress={() => navigation.navigate('Clinics')}
+              >
+                <Text style={styles.seeAllText}>Barchasi</Text>
+                <ChevronRight color={BLUE} size={17} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingClinics ? (
+              <View style={styles.cardsList}>
+                <SkeletonClinicCard />
+                <SkeletonClinicCard />
+                <SkeletonClinicCard />
+              </View>
+            ) : clinicsError ? (
+              <View style={styles.statusContainer}>
+                <Text style={styles.errorText}>{clinicsError}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={() => fetchClinics()}>
+                  <Text style={styles.retryButtonText}>Qayta urinish</Text>
+                </TouchableOpacity>
+              </View>
+            ) : filteredClinics.length === 0 ? (
+              <View style={styles.statusContainer}>
+                <Text style={styles.statusText}>Hozircha klinikalar mavjud emas</Text>
+              </View>
+            ) : (
+              <View style={styles.cardsList}>
+                {filteredClinics.map((clinic) => (
+                  <ClinicCard
+                    key={clinic.id || clinic.name}
+                    clinic={clinic}
+                    onPress={() => {
+                      setSelectedClinic(clinic);
+                      setClinicDetailVisible(true);
+                    }}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      ) : (
+        <View style={styles.placeholderContainer}>
+          <Text style={styles.placeholderText}>Tez orada</Text>
+        </View>
+      )}
+
+      {/* BOTTOM NAVBAR */}
+      <View style={[styles.navbar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <TabButton
+          icon={Home}
+          label="Bosh"
+          isActive={selectedTab === 'Bosh sahifa'}
+          onPress={() => handleTabPress('Bosh sahifa')}
+        />
+        <TabButton
+          icon={MessageCircle}
+          label="Xabarlar"
+          isActive={selectedTab === 'Xabarlar'}
+          onPress={() => handleTabPress('Xabarlar')}
+        />
+        <TabButton
+          icon={User}
+          label="Profil"
+          isActive={selectedTab === 'Profil'}
+          onPress={() => handleTabPress('Profil')}
+        />
+      </View>
+
+      {/* PROFILE MODAL */}
+      <ProfileModal
+        visible={profileVisible}
+        onClose={handleProfileClose}
+        userName={userName}
+        userInitials={userInitials}
+      />
+
+      {/* CLINIC DETAIL MODAL */}
+      <ClinicDetailModal
+        visible={clinicDetailVisible}
+        onClose={() => setClinicDetailVisible(false)}
+        clinic={selectedClinic}
+      />
+    </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  overlayContainer: {
-    flex: 1,
-    justify: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000000',
-  },
-  sheetContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: SCREEN_HEIGHT,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    // Webda matnlarni belgilash va sichqoncha ikkilanib qolishining oldini oladi:
-    userSelect: 'none',
-  },
-  dragHandleZone: {
-    width: '100%',
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'grab',
-  },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#E2E8F0',
-  },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  closeButton: {
-    padding: 4,
-  },
-  scrollContent: {
-    paddingBottom: 60,
-  },
-  profileCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 16,
-  },
-  avatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#0083CA',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  userInfo: {
-    marginLeft: 12,
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0F172A',
-  },
-  userRole: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statNumber: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0083CA',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  sectionContainer: {
-    marginBottom: 20,
-  },
-  sectionHeaderTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#94A3B8',
-    letterSpacing: 1,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  infoCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#E0F2FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  infoTextContainer: {
-    marginLeft: 12,
-  },
-  infoLabel: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  infoValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0F172A',
-    marginTop: 1,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-  },
-  switchLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  switchLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0F172A',
-    marginLeft: 12,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-  },
-  menuCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 18,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  profileSection: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
+  greetingText: { color: '#64748B', fontSize: 13 },
+  userNameText: { color: '#0F172A', fontSize: 19, fontWeight: '700', marginTop: 3 },
+  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: BLUE, justifyContent: 'center', alignItems: 'center' },
+  avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 14, paddingHorizontal: 14, height: 46, gap: 10 },
+  searchPlaceholder: { color: '#94A3B8', fontSize: 13 },
+  contentArea: { flex: 1 },
+  filtersSection: { marginTop: 18 },
+  filtersContent: { paddingHorizontal: 16, gap: 7 },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0' },
+  filterChipActive: { backgroundColor: BLUE, borderColor: BLUE },
+  filterText: { color: '#64748B', fontSize: 11, fontWeight: '500' },
+  filterTextActive: { color: '#FFFFFF', fontWeight: '600' },
+  clinicsSection: { marginTop: 23, paddingHorizontal: 16 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  sectionTitle: { color: '#0F172A', fontSize: 17, fontWeight: '700' },
+  seeAllButton: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  seeAllText: { color: BLUE, fontSize: 13, fontWeight: '600' },
+  cardsList: { flexDirection: 'column' },
+  clinicCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 17,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
-    paddingHorizontal: 14,
+    borderColor: '#E9EFF5',
+    padding: 10,
+    marginBottom: 10,
+    gap: 11,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.035,
+    shadowRadius: 5,
+    elevation: 1,
   },
-  menuItem: {
+  logoContainer: { position: 'relative', width: 53, height: 53 },
+  clinicLogo: { width: 53, height: 53, borderRadius: 13, justifyContent: 'center', alignItems: 'center' },
+  logoText: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
+  onlineBadge: { position: 'absolute', bottom: -2, right: -2, width: 11, height: 11, borderRadius: 6, backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#FFFFFF' },
+  clinicInfo: { flex: 1, justifyContent: 'center' },
+  clinicTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
+  clinicName: { flex: 1, color: '#0F172A', fontSize: 13, fontWeight: '700', marginRight: 5 },
+  ratingContainer: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  ratingText: { color: BLUE, fontSize: 11, fontWeight: '700' },
+  clinicAddress: { color: '#64748B', fontSize: 10, marginBottom: 3 },
+  patientsText: { color: '#94A3B8', fontSize: 9, marginBottom: 4 },
+  clinicBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  distanceText: { color: '#64748B', fontSize: 9 },
+  dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#94A3B8' },
+  openStatus: { flexDirection: 'row', alignItems: 'center' },
+  openStatusText: { color: '#16A34A', fontSize: 12, fontWeight: '600' },
+  workingHours: { color: '#16A34A', fontSize: 9 },
+  statusContainer: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center' },
+  statusText: { color: '#64748B', fontSize: 13, marginTop: 10, textAlign: 'center' },
+  errorText: { color: '#EF4444', fontSize: 13, marginBottom: 12, textAlign: 'center' },
+  retryButton: { backgroundColor: BLUE, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 12 },
+  retryButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
+  placeholderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  placeholderText: { color: '#94A3B8', fontSize: 15 },
+  navbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
+    justifyContent: 'space-around',
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    paddingTop: 10,
   },
-  menuLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  menuItemText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#1E293B',
-    marginLeft: 12,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
-    borderRadius: 12,
-    paddingVertical: 14,
-    marginTop: 4,
-  },
-  logoutText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#EF4444',
-    marginLeft: 8,
-  },
+  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 38 },
+  activeTab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#E0F2FE', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, gap: 6 },
+  activeTabText: { color: BLUE, fontSize: 12, fontWeight: '700' },
 });
-
-export default ProfileModal;

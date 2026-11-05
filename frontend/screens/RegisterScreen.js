@@ -15,7 +15,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
-import { resetRoot } from '../RootNavigation';
 
 const PHONE_PREFIX = '+998 ';
 
@@ -116,16 +115,18 @@ const RegisterScreen = () => {
         console.log('REGISTER: sessiya saqlandi, Welcome sahifasiga o‘tilmoqda...');
         const nextScreen = role === 'clinic' ? 'ClinicHome' : 'Welcome';
         console.log('REGISTER: root sahifaga o‘tish:', nextScreen);
-        resetRoot(nextScreen);
+        navigation.reset({ index: 0, routes: [{ name: nextScreen }] });
       } else {
         setErrorMessage(
-          data.detail || "Ro'yxatdan o'tishda xatolik yuz berdi"
+          typeof data.detail === 'string'
+            ? data.detail
+            : "Ro'yxatdan o'tishda xatolik yuz berdi",
         );
       }
     } catch (error) {
       console.log('REGISTER ERROR:', error);
       console.log('ERROR MESSAGE:', error.message);
-      setErrorMessage('Serverga ulanishda xatolik yuz berdi');
+      setErrorMessage(error.message || 'Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
     }

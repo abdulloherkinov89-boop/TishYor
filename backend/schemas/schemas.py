@@ -86,6 +86,12 @@ class ClinicResponse(BaseModel):
         from_attributes = True
 
 
+class ClinicStats(BaseModel):
+    patients_served: int
+    rating: str
+    doctors_count: int
+
+
 class ClinicOut(BaseModel):
     id: int
     name: str

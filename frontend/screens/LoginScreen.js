@@ -15,7 +15,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
-import { resetRoot } from '../RootNavigation';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
@@ -107,9 +106,13 @@ const LoginScreen = () => {
         console.log('LOGIN: sessiya saqlandi, sahifaga o‘tilmoqda...');
         const nextScreen = role === 'clinic' ? 'ClinicHome' : 'Welcome';
         console.log('LOGIN: root sahifaga o‘tish:', nextScreen);
-        resetRoot(nextScreen);
+        navigation.reset({ index: 0, routes: [{ name: nextScreen }] });
       } else {
-        setErrorMessage(data.detail || 'Kirishda xatolik yuz berdi');
+        setErrorMessage(
+          typeof data.detail === 'string'
+            ? data.detail
+            : 'Kirishda xatolik yuz berdi',
+        );
       }
     } catch (error) {
       console.log('LOGIN ERROR:', error);

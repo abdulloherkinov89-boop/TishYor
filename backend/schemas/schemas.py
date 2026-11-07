@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel
 from models.models import ClinicStatus
 
@@ -13,6 +13,7 @@ class UserCreate(BaseModel):
 
 class LoginRequest(BaseModel):
     telefon: str
+    role: Literal["patient", "clinic"] | None = None
 
 
 class UserOut(BaseModel):

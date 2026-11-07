@@ -24,16 +24,23 @@ def normalize_telefon(telefon: str) -> str:
 def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
     telefon = normalize_telefon(login_data.telefon)
 
-    clinic = (
-        db.query(Clinic)
-        .filter(func.replace(Clinic.telefon, " ", "") == telefon)
-        .first()
-    )
-    if clinic is not None:
-        token = create_access_token(clinic.id, telefon, role="clinic")
-        return AuthResponse(
-            access_token=token,
-            user={"id": clinic.id, "name": clinic.name, "telefon": telefon, "role": "clinic"},
+    if login_data.role in (None, "clinic"):
+        clinic = (
+            db.query(Clinic)
+            .filter(func.replace(Clinic.telefon, " ", "") == telefon)
+            .first()
+        )
+        if clinic is not None:
+            token = create_access_token(clinic.id, telefon, role="clinic")
+            return AuthResponse(
+                access_token=token,
+                user={"id": clinic.id, "name": clinic.name, "telefon": telefon, "role": "clinic"},
+            )
+
+    if login_data.role == "clinic":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bu telefon raqam bilan klinika topilmadi",
         )
 
     user = (
@@ -41,10 +48,10 @@ def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
         .filter(func.replace(User.telefon, " ", "") == telefon)
         .first()
     )
-    if user is None:
+    if user is None or (login_data.role == "patient" and user.role != "patient"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bu telefon raqam bilan foydalanuvchi topilmadi",
+            detail="Bu telefon raqam bilan bemor topilmadi",
         )
 
     token = create_access_token(user.id, user.telefon, role=user.role)

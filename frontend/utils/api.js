@@ -51,8 +51,9 @@ export async function apiFetch(url, options = {}) {
         });
 
         if (response.status === 401) {
-          await AsyncStorage.multiRemove(['token', 'user']);
-          navigate('Login');
+          const role = await AsyncStorage.getItem('role');
+          await AsyncStorage.multiRemove(['token', 'user', 'role']);
+          navigate('Login', { role: role === 'clinic' ? 'clinic' : 'patient' });
         }
 
         return response;

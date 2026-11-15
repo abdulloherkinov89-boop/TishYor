@@ -31,7 +31,7 @@ import {
   Plus,
 } from 'lucide-react-native';
 
-export default function ClinicRegister({ navigation }) {
+export default function ClinicRegister({ navigation, onAuthenticated }) {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
@@ -316,10 +316,7 @@ export default function ClinicRegister({ navigation }) {
         ['user', JSON.stringify(clinicUser)],
         ['role', role],
       ]);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'ClinicHome', params: { clinic: clinicUser } }],
-      });
+      onAuthenticated?.({ role, user: clinicUser });
     } catch (error) {
       Alert.alert('Xatolik', getBackendErrorMessage(error.message));
     } finally {

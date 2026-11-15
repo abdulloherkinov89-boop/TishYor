@@ -8,7 +8,7 @@
     },
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "backgroundColor": "#0F172A",
+    "backgroundColor": "#FFFFFF",
     "ios": {
       "supportsTablet": true
     },

@@ -15,10 +15,19 @@ app = FastAPI(title="TishYor API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8081",
+        "http://localhost:19006",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8081",
+        "http://127.0.0.1:19006",
+    ],
+    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "Authorization", "Content-Type"],
+    expose_headers=["*"],
 )
 
 uploads_directory = Path(__file__).resolve().parent / "uploads"

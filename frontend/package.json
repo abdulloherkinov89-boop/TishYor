@@ -33,7 +33,8 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start --go --tunnel ngrok",
+    "start": "expo start --go",
+    "tunnel": "expo start --go --tunnel",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"

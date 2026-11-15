@@ -9,6 +9,7 @@ import {
   StatusBar,
   Animated,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -216,13 +217,22 @@ export default function HomeScreen() {
     setClinicsError(null);
 
     try {
+      console.log('WELCOME_SCREEN: klinikalar ro‘yxati so‘ralmoqda (/clinics/)...');
       const response = await apiFetch('/clinics/');
+      console.log('WELCOME_SCREEN: /clinics/ status:', response?.status);
       if (!response.ok) {
         throw new Error(`Klinikalarni yuklashda xatolik (${response.status})`);
       }
       const data = await response.json();
-      setClinics(Array.isArray(data) ? data : []);
+      console.log('WELCOME_SCREEN: muvaffaqiyatli yuklandi, soni:', data?.length);
+      const clinicList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.clinics)
+          ? data.clinics
+          : [];
+      setClinics(clinicList.filter((clinic) => clinic && typeof clinic === 'object' && !Array.isArray(clinic)));
     } catch (error) {
+      console.error('WELCOME_SCREEN: fetchClinics xatosi:', error?.message || error);
       setClinicsError(error.message || 'Ulanishda xatolik yuz berdi');
     } finally {
       setLoadingClinics(false);
@@ -257,7 +267,9 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const filteredClinics = [...clinics].sort((a, b) => {
+  const filteredClinics = (Array.isArray(clinics) ? clinics : [])
+    .filter((clinic) => clinic && typeof clinic === 'object')
+    .sort((a, b) => {
     if (activeFilter === "Reyting bo'yicha") {
       return Number(b.rating || 0) - Number(a.rating || 0);
     }
@@ -364,6 +376,7 @@ export default function HomeScreen() {
 
             {loadingClinics ? (
               <View style={styles.cardsList}>
+                <ActivityIndicator size="large" color={BLUE} />
                 <SkeletonClinicCard />
                 <SkeletonClinicCard />
                 <SkeletonClinicCard />

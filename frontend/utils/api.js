@@ -4,19 +4,54 @@ import Constants from 'expo-constants';
 
 import { navigate } from '../RootNavigation';
 
-const scriptUrl = NativeModules.SourceCode?.scriptURL || '';
-const scriptHost = scriptUrl.match(/^(?:https?|exp):\/\/([^/:]+)/)?.[1];
-const expoHostUri =
-  Constants.expoConfig?.hostUri ||
-  Constants.manifest2?.extra?.expoClient?.hostUri ||
-  Constants.manifest?.debuggerHost ||
-  Constants.manifest?.hostUri;
-const expoHost = expoHostUri?.split(':')[0];
-const API_HOST = Platform.OS === 'web' ? 'localhost' : expoHost || scriptHost || 'localhost';
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || `http://${API_HOST}:8000`;
+/**
+ * API Sozlamalari:
+ * Telefonda Expo Go ishlatilganda 'localhost' ishlamaydi.
+ * Kompyuteringizning LAN IP manzilini shu yerda o'zgartirishingiz mumkin.
+ * Shuningdek, .env faylida EXPO_PUBLIC_API_URL orqali ham boshqarish mumkin.
+ */
+export const DEV_LAN_IP = '192.168.70.140';
+export const DEV_PORT = 8000;
+
+export function resolveApiBaseUrl() {
+  if (Platform.OS === 'web') {
+    // Agar brauzerda localhost emas, IP orqali ochilgan bo'lsa
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+      const webHost = window.location.hostname;
+      return `http://${webHost}:${DEV_PORT}`;
+    }
+    return `http://localhost:${DEV_PORT}`;
+  }
+
+  // Mobil / Expo Go: Metro server hostini avtomatik aniqlash
+  const scriptUrl = NativeModules.SourceCode?.scriptURL || '';
+  const scriptHost = scriptUrl.match(/^(?:https?|exp):\/\/([^/:]+)/)?.[1];
+  const expoHostUri =
+    Constants.expoConfig?.hostUri ||
+    Constants.manifest2?.extra?.expoClient?.hostUri ||
+    Constants.manifest?.debuggerHost ||
+    Constants.manifest?.hostUri;
+  const expoHost = expoHostUri?.split(':')[0];
+
+  const detectedHost = expoHost || scriptHost;
+  const isLoopback = !detectedHost || detectedHost === 'localhost' || detectedHost === '127.0.0.1';
+
+  // Agar Expo Go orqali kompyuter IP manzili aniqlangan bo'lsa, uni avtomatik olamiz
+  if (!isLoopback) {
+    return `http://${detectedHost}:${DEV_PORT}`;
+  }
+
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    return process.env.EXPO_PUBLIC_API_URL.replace(/\/$/, '');
+  }
+
+  return `http://${DEV_LAN_IP}:${DEV_PORT}`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 const API_TIMEOUT_MS = 15000;
 
-console.log('API_BASE_URL:', API_BASE_URL);
+console.log('[API CONFIG] Faol API_BASE_URL:', API_BASE_URL, '| Platform:', Platform.OS);
 
 export async function apiFetch(url, options = {}) {
   const controller = new AbortController();
@@ -33,24 +68,39 @@ export async function apiFetch(url, options = {}) {
     return await Promise.race([
       (async () => {
         const token = await AsyncStorage.getItem('token');
-        const headers = new Headers(options.headers || {});
         const isMultipartBody =
           typeof FormData !== 'undefined' && options.body instanceof FormData;
 
-        if (!headers.has('Content-Type') && options.body && !isMultipartBody) {
-          headers.set('Content-Type', 'application/json');
+        // Plain object headers (Web va React Native uchun 100% ishonchli)
+        const incomingHeaders = options.headers instanceof Headers
+          ? Object.fromEntries(options.headers.entries())
+          : (options.headers || {});
+
+        const headers = {
+          ...(options.body && !isMultipartBody ? { 'Content-Type': 'application/json' } : {}),
+          ...incomingHeaders,
+        };
+
+        if (token && !headers['Authorization'] && !headers['authorization']) {
+          headers['Authorization'] = `Bearer ${token}`;
         }
-        if (token) {
-          headers.set('Authorization', `Bearer ${token}`);
-        }
+
+        const method = (options.method || 'GET').toUpperCase();
+        console.log(`[API REQUEST] ${method} ${fullUrl}`, {
+          hasToken: Boolean(token),
+        });
 
         const response = await fetch(fullUrl, {
           ...options,
+          method,
           headers,
           signal: options.signal || controller.signal,
         });
 
+        console.log(`[API RESPONSE] ${response.status} ${method} ${fullUrl}`);
+
         if (response.status === 401) {
+          console.warn('[API 401] Sessiya muddati tugagan yoki token yaroqsiz:', fullUrl);
           const role = await AsyncStorage.getItem('role');
           await AsyncStorage.multiRemove(['token', 'user', 'role']);
           navigate('Login', { role: role === 'clinic' ? 'clinic' : 'patient' });
@@ -61,6 +111,7 @@ export async function apiFetch(url, options = {}) {
       timeout,
     ]);
   } catch (error) {
+    console.error(`[API ERROR] ${fullUrl}:`, error?.message || error);
     if (
       error?.message === 'API_TIMEOUT' ||
       error?.name === 'AbortError' ||
@@ -70,7 +121,7 @@ export async function apiFetch(url, options = {}) {
     }
     if (error?.name === 'TypeError' && /fetch|network/i.test(error.message || '')) {
       throw new Error(
-        'Serverga ulanib bo‘lmadi. Backend ishlayotganini va telefon bilan kompyuter bir Wi-Fi tarmog‘ida ekanini tekshiring.',
+        `Serverga ulanib bo‘lmadi (${API_BASE_URL}). Backend ishlayotganini va bir tarmoqda (Wi-Fi) ekanini tekshiring.`,
       );
     }
     throw error;

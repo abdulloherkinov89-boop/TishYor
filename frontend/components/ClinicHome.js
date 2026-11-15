@@ -3,6 +3,7 @@ import {
   AccessibilityInfo,
   Alert,
   Animated,
+  ActivityIndicator,
   Easing,
   Image,
   Linking,
@@ -275,6 +276,7 @@ function SkeletonScreen({ insets, width }) {
       </View>
 
       <View style={{ paddingHorizontal: 18, marginTop: 44 }}>
+        <ActivityIndicator size="large" color={COLORS.teal} style={{ marginBottom: 16 }} />
         <View style={[styles.skelLineSm, { width: 120, marginBottom: 12 }]} />
         <View style={styles.skeletonListSurface}>
           {[1, 2, 3, 4].map((_, i) => (
@@ -295,7 +297,7 @@ function SkeletonScreen({ insets, width }) {
 // ---------------------------------------------------------------------------
 // Main Screen Component
 // ---------------------------------------------------------------------------
-export default function ClinicHome({ navigation, route }) {
+export default function ClinicHome({ navigation, route, onLogout }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
@@ -322,21 +324,53 @@ export default function ClinicHome({ navigation, route }) {
   const [displayDoctors, setDisplayDoctors] = useState('0');
   const [displayAppointments, setDisplayAppointments] = useState('0');
 
+  // Boshlang'ichda AsyncStorage'dagi foydalanuvchini o'qish (login'dan keyin darhol ko'rsatish uchun)
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const storedUser = await AsyncStorage.getItem('user');
+        if (storedUser && isMounted) {
+          const parsed = JSON.parse(storedUser);
+          if (parsed && (parsed.name || parsed.id)) {
+            setClinic((prev) => prev || parsed);
+          }
+        }
+      } catch (err) {
+        console.warn('CLINIC_HOME: keshdagi userni o‘qishda xatolik:', err);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const loadDoctors = useCallback(async () => {
     try {
+      console.log('CLINIC_HOME: loadDoctors so‘rovi boshlandi (/clinics/doctors/me)...');
       const res = await apiFetch('/clinics/doctors/me');
+      console.log('CLINIC_HOME: loadDoctors status:', res?.status);
       if (res?.ok) {
         const data = await res.json();
-        setDoctors(
-          data.map((d) => ({
+        const doctorList = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.doctors)
+            ? data.doctors
+            : [];
+        console.log('CLINIC_HOME: yuklangan shifokorlar soni:', doctorList.length);
+        setDoctors(doctorList.filter((d) => d && typeof d === 'object').map((d) => ({
             id: String(d.id),
-            name: d.name,
-            specialty: d.specialty,
-            experience: d.experience,
-          }))
-        );
+            name: String(d.name || ''),
+            specialty: String(d.specialty || ''),
+            experience: String(d.experience || ''),
+          })));
+      } else {
+        const errPayload = await res.json().catch(() => ({}));
+        console.warn('CLINIC_HOME: doktorlar yuklanmadi:', res?.status, errPayload);
       }
-    } catch (error) {}
+    } catch (error) {
+      console.error('CLINIC_HOME: loadDoctors xatosi:', error?.message || error);
+    }
   }, []);
 
   const runAnimations = useCallback((patientsVal, ratingVal, doctorsVal, apptVal) => {
@@ -412,22 +446,35 @@ export default function ClinicHome({ navigation, route }) {
   const fetchClinicData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     try {
+      console.log('CLINIC_HOME: fetchClinicData chaqirilmoqda (/clinics/me)...');
       const response = await apiFetch('/clinics/me');
+      console.log('CLINIC_HOME: /clinics/me status:', response?.status);
       if (response?.ok) {
         const data = await response.json();
-        setClinic(data);
-        await AsyncStorage.setItem('user', JSON.stringify(data));
+        const clinicData = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+        console.log('CLINIC_HOME: klinika ma‘lumotlari olindi:', clinicData?.name);
+        setClinic(clinicData);
+        await AsyncStorage.setItem('user', JSON.stringify(clinicData));
 
         const statsResponse = await apiFetch('/clinics/me/stats');
-        const stats = statsResponse?.ok ? await statsResponse.json() : {};
+        console.log('CLINIC_HOME: /clinics/me/stats status:', statsResponse?.status);
+        const statsData = statsResponse?.ok ? await statsResponse.json() : {};
+        const stats = statsData && typeof statsData === 'object' && !Array.isArray(statsData)
+          ? (statsData.stats && typeof statsData.stats === 'object' ? statsData.stats : statsData)
+          : {};
+        console.log('CLINIC_HOME: statistika:', stats);
         runAnimations(
-          stats?.patients_served ?? data?.patients_served,
-          stats?.rating ?? data?.rating,
+          stats?.patients_served ?? clinicData?.patients_served,
+          stats?.rating ?? clinicData?.rating,
           stats?.doctors_count ?? 0,
-          data?.today_appointments
+          clinicData?.today_appointments
         );
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        console.warn('CLINIC_HOME: klinika ma‘lumotlari olinmadi:', response?.status, errData);
       }
     } catch (error) {
+      console.error('CLINIC_HOME: fetchClinicData xatosi:', error?.message || error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -444,7 +491,7 @@ export default function ClinicHome({ navigation, route }) {
   const handleLogout = async () => {
     try {
       await AsyncStorage.multiRemove(['token', 'user', 'role']);
-      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+      onLogout?.();
     } catch (error) {
       Alert.alert('Xatolik', 'Hisobdan chiqishda muammo yuz berdi.');
     }

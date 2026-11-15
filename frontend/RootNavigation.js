@@ -8,6 +8,8 @@ export const navigationRef = createNavigationContainerRef();
 export function navigate(name, params) {
   if (navigationRef.isReady()) {
     navigationRef.navigate(name, params);
+  } else {
+    console.warn('ROOT NAVIGATION: ref tayyor emas; navigate bekor qilindi:', name);
   }
 }
 

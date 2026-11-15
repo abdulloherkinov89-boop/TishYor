@@ -5,7 +5,8 @@
   "main": "frontend/index.ts",
   "scripts": {
     "dev": "concurrently --kill-others-on-fail -n FRONTEND,BACKEND -c blue,green \"npm --prefix frontend start\" \"npm --prefix backend run dev\"",
-    "start": "npm run dev"
+    "start": "npm run dev",
+    "tunnel": "concurrently --kill-others-on-fail -n FRONTEND,BACKEND -c blue,green \"npm --prefix frontend run tunnel\" \"npm --prefix backend run dev\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

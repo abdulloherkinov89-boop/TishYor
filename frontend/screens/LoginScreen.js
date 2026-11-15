@@ -16,7 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
 
-const LoginScreen = () => {
+const LoginScreen = ({ onAuthenticated }) => {
   const navigation = useNavigation();
   const [telefon, setTelefon] = useState('+998 ');
   const [loading, setLoading] = useState(false);
@@ -97,16 +97,15 @@ const LoginScreen = () => {
         }
 
         const role = data.user.role || 'patient';
+        const user = { ...data.user, role };
         console.log('LOGIN: sessiya saqlanmoqda...');
         await AsyncStorage.multiSet([
           ['token', data.access_token],
-          ['user', JSON.stringify({ ...data.user, role })],
+          ['user', JSON.stringify(user)],
           ['role', role],
         ]);
         console.log('LOGIN: sessiya saqlandi, sahifaga o‘tilmoqda...');
-        const nextScreen = role === 'clinic' ? 'ClinicHome' : 'Welcome';
-        console.log('LOGIN: root sahifaga o‘tish:', nextScreen);
-        navigation.reset({ index: 0, routes: [{ name: nextScreen }] });
+        onAuthenticated?.({ role, user });
       } else {
         setErrorMessage(
           typeof data.detail === 'string'

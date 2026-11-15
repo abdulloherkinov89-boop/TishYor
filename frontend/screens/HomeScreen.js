@@ -193,7 +193,9 @@ export default function HomeScreen() {
     setClinicsError(null);
 
     try {
+      console.log('HOME_SCREEN: klinikalar ro‘yxati so‘ralmoqda (/clinics/)...');
       const response = await apiFetch('/clinics/');
+      console.log('HOME_SCREEN: /clinics/ status:', response?.status);
 
       if (!response.ok) {
         throw new Error(
@@ -202,9 +204,16 @@ export default function HomeScreen() {
       }
 
       const data = await response.json();
+      console.log('HOME_SCREEN: muvaffaqiyatli yuklandi, soni:', data?.length);
 
-      setClinics(Array.isArray(data) ? data : []);
+      const clinicList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.clinics)
+          ? data.clinics
+          : [];
+      setClinics(clinicList.filter((clinic) => clinic && typeof clinic === 'object' && !Array.isArray(clinic)));
     } catch (error) {
+      console.error('HOME_SCREEN: fetchClinics xatosi:', error?.message || error);
       setClinicsError(
         error.message || 'Ulanishda xatolik yuz berdi'
       );
@@ -282,7 +291,9 @@ export default function HomeScreen() {
   // FILTERS
   // ======================================
 
-  const filteredClinics = [...clinics].sort((a, b) => {
+  const filteredClinics = (Array.isArray(clinics) ? clinics : [])
+    .filter((clinic) => clinic && typeof clinic === 'object')
+    .sort((a, b) => {
     if (activeFilter === "Reyting bo'yicha") {
       return Number(b.rating || 0) - Number(a.rating || 0);
     }

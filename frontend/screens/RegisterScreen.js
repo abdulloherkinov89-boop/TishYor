@@ -18,7 +18,7 @@ import { apiFetch } from '../utils/api';
 
 const PHONE_PREFIX = '+998 ';
 
-const RegisterScreen = () => {
+const RegisterScreen = ({ onAuthenticated }) => {
   const navigation = useNavigation();
 
   const [ism, setIsm] = useState('');
@@ -106,16 +106,15 @@ const RegisterScreen = () => {
         }
 
         const role = data.user.role || 'patient';
+        const user = { ...data.user, role };
         console.log('REGISTER: sessiya saqlanmoqda...');
         await AsyncStorage.multiSet([
           ['token', data.access_token],
-          ['user', JSON.stringify({ ...data.user, role })],
+          ['user', JSON.stringify(user)],
           ['role', role],
         ]);
-        console.log('REGISTER: sessiya saqlandi, Welcome sahifasiga o‘tilmoqda...');
-        const nextScreen = role === 'clinic' ? 'ClinicHome' : 'Welcome';
-        console.log('REGISTER: root sahifaga o‘tish:', nextScreen);
-        navigation.reset({ index: 0, routes: [{ name: nextScreen }] });
+        console.log('REGISTER: sessiya saqlandi, sahifaga o‘tilmoqda...');
+        onAuthenticated?.({ role, user });
       } else {
         setErrorMessage(
           typeof data.detail === 'string'
@@ -125,8 +124,8 @@ const RegisterScreen = () => {
       }
     } catch (error) {
       console.log('REGISTER ERROR:', error);
-      console.log('ERROR MESSAGE:', error.message);
-      setErrorMessage(error.message || 'Serverga ulanishda xatolik yuz berdi');
+      console.log('ERROR MESSAGE:', error?.message);
+      setErrorMessage(error?.message || 'Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
     }

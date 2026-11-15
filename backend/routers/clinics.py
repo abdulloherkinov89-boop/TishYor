@@ -127,6 +127,7 @@ async def upload_logo(request: Request, file: UploadFile = File(...)):
     return {"logo_url": logo_url}
 
 
+@router.get("", response_model=list[schemas.ClinicOut], include_in_schema=False)
 @router.get("/", response_model=list[schemas.ClinicOut])
 def get_clinics(db: Session = Depends(get_db)):
     return (

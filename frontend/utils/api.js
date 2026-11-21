@@ -10,11 +10,21 @@ import { navigate } from '../RootNavigation';
  * Kompyuteringizning LAN IP manzilini shu yerda o'zgartirishingiz mumkin.
  * Shuningdek, .env faylida EXPO_PUBLIC_API_URL orqali ham boshqarish mumkin.
  */
-export const DEV_LAN_IP = '192.168.70.140';
+export const DEV_LAN_IP = '192.168.70.90';
 export const DEV_PORT = 8000;
 
 export function resolveApiBaseUrl() {
+  const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
+
+  // Agar tashqi / production HTTPS domen bo'lsa, har doim uni ishlatamiz
+  if (configuredApiUrl && configuredApiUrl.startsWith('https://')) {
+    return configuredApiUrl;
+  }
+
   if (Platform.OS === 'web') {
+    if (configuredApiUrl) {
+      return configuredApiUrl;
+    }
     // Agar brauzerda localhost emas, IP orqali ochilgan bo'lsa
     if (typeof window !== 'undefined' && window.location && window.location.hostname) {
       const webHost = window.location.hostname;
@@ -41,8 +51,8 @@ export function resolveApiBaseUrl() {
     return `http://${detectedHost}:${DEV_PORT}`;
   }
 
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL.replace(/\/$/, '');
+  if (configuredApiUrl) {
+    return configuredApiUrl;
   }
 
   return `http://${DEV_LAN_IP}:${DEV_PORT}`;

@@ -16,7 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../utils/api';
 
-const LoginScreen = ({ onAuthenticated }) => {
+const LoginScreen = ({ onAuthenticated, route }) => {
   const navigation = useNavigation();
   const [telefon, setTelefon] = useState('+998 ');
   const [loading, setLoading] = useState(false);
@@ -85,7 +85,10 @@ const LoginScreen = ({ onAuthenticated }) => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ telefon: cleanPhone }),
+        body: JSON.stringify({
+          telefon: cleanPhone,
+          role: route?.params?.role || null,
+        }),
       });
       console.log('LOGIN: javob keldi, status:', response.status);
       const data = await response.json().catch(() => ({}));
@@ -104,7 +107,7 @@ const LoginScreen = ({ onAuthenticated }) => {
           ['user', JSON.stringify(user)],
           ['role', role],
         ]);
-        console.log('LOGIN: sessiya saqlandi, sahifaga o‘tilmoqda...');
+        console.log('LOGIN: sahifaga o‘tilmoqda...');
         onAuthenticated?.({ role, user });
       } else {
         setErrorMessage(

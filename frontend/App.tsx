@@ -86,6 +86,7 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, AppError
 export default function App() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const doctorsRef = useRef<Doctor[]>([]);
   const doctorsReadyRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -103,12 +104,40 @@ export default function App() {
     setAuthSession(session);
   };
 
-  const handleLoggedOut = () => {
+  const handleLoggedOut = async () => {
+    try {
+      await AsyncStorage.multiRemove(['token', 'user', 'role']);
+    } catch (e) {
+      console.warn('Logout xatosi:', e);
+    }
     setAuthSession(null);
   };
 
   useEffect(() => {
     let isActive = true;
+
+    const restoreSession = async () => {
+      try {
+        const [[, token], [, userStr], [, role]] = await AsyncStorage.multiGet([
+          'token',
+          'user',
+          'role',
+        ]);
+        if (token && userStr && isActive) {
+          const parsedUser = JSON.parse(userStr);
+          const resolvedRole = role || parsedUser?.role || 'patient';
+          setAuthSession({ role: resolvedRole, user: parsedUser });
+        }
+      } catch (err) {
+        console.warn('Sessiyani tiklashda xatolik:', err);
+      } finally {
+        if (isActive) {
+          setIsInitializing(false);
+        }
+      }
+    };
+
+    restoreSession();
 
     doctorsReadyRef.current = AsyncStorage.getItem(DOCTORS_STORAGE_KEY)
       .then((storedDoctors) => {
@@ -136,6 +165,10 @@ export default function App() {
     doctorsRef.current = updatedDoctors;
     setDoctors(updatedDoctors);
   };
+
+  if (isInitializing) {
+    return null;
+  }
 
   return (
     <AppErrorBoundary>
@@ -209,8 +242,16 @@ export default function App() {
             </Stack.Group>
           ) : (
             <Stack.Group navigationKey="patient">
-              <Stack.Screen name="Welcome" component={WelcomeScreen} />
-              <Stack.Screen name="Home" component={WelcomeScreen} />
+              <Stack.Screen name="Welcome">
+                {(props) => (
+                  <WelcomeScreen {...props} onLogout={handleLoggedOut} />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="Home">
+                {(props) => (
+                  <WelcomeScreen {...props} onLogout={handleLoggedOut} />
+                )}
+              </Stack.Screen>
             </Stack.Group>
           )}
         </Stack.Navigator>

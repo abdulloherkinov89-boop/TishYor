@@ -48,7 +48,18 @@ def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
         .filter(func.replace(User.telefon, " ", "") == telefon)
         .first()
     )
-    if user is None or (login_data.role == "patient" and user.role != "patient"):
+    if user is None:
+        if login_data.role == "patient":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Bu telefon raqam bilan bemor topilmadi",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Bu telefon raqam bilan hisob topilmadi",
+        )
+
+    if login_data.role == "patient" and user.role != "patient":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bu telefon raqam bilan bemor topilmadi",

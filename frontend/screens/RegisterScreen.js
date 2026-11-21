@@ -113,7 +113,7 @@ const RegisterScreen = ({ onAuthenticated }) => {
           ['user', JSON.stringify(user)],
           ['role', role],
         ]);
-        console.log('REGISTER: sessiya saqlandi, sahifaga o‘tilmoqda...');
+        console.log('REGISTER: sahifaga o‘tilmoqda...');
         onAuthenticated?.({ role, user });
       } else {
         setErrorMessage(

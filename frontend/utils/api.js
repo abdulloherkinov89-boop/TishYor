@@ -10,7 +10,7 @@ import { navigate } from '../RootNavigation';
  * Kompyuteringizning LAN IP manzilini shu yerda o'zgartirishingiz mumkin.
  * Shuningdek, .env faylida EXPO_PUBLIC_API_URL orqali ham boshqarish mumkin.
  */
-export const DEV_LAN_IP = '192.168.70.90';
+export const DEV_LAN_IP = '192.168.70.132';
 export const DEV_PORT = 8000;
 
 export function resolveApiBaseUrl() {
@@ -25,12 +25,7 @@ export function resolveApiBaseUrl() {
     if (configuredApiUrl) {
       return configuredApiUrl;
     }
-    // Agar brauzerda localhost emas, IP orqali ochilgan bo'lsa
-    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-      const webHost = window.location.hostname;
-      return `http://${webHost}:${DEV_PORT}`;
-    }
-    return `http://localhost:${DEV_PORT}`;
+    return 'http://localhost:8000';
   }
 
   // Mobil / Expo Go: Metro server hostini avtomatik aniqlash

@@ -69,7 +69,7 @@ const LoginScreen = ({ onAuthenticated, route }) => {
     const rawDigits = telefon.replace(/\D/g, '');
     
     if (rawDigits.length < 12) {
-      setErrorMessage('Iltimos, telefon raqamingizni to\'liq kiriting');
+      setErrorMessage("Iltimos, telefon raqamingizni to'liq kiriting");
       return;
     }
 
@@ -113,7 +113,7 @@ const LoginScreen = ({ onAuthenticated, route }) => {
         setErrorMessage(
           typeof data.detail === 'string'
             ? data.detail
-            : 'Kirishda xatolik yuz berdi',
+            : "Kirishda xatolik yuz berdi",
         );
       }
     } catch (error) {
@@ -137,7 +137,9 @@ const LoginScreen = ({ onAuthenticated, route }) => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.headerContainer}>
-            <Text style={styles.title}>Kirish</Text>
+            <Text style={styles.title}>
+              {route?.params?.role === 'clinic' ? 'Klinikaga kirish' : 'Bemor sifatida kirish'}
+            </Text>
             <Text style={styles.subtitle}>
               Telefon raqamingiz orqali hisobingizga kiring
             </Text>
@@ -187,7 +189,11 @@ const LoginScreen = ({ onAuthenticated, route }) => {
 
             <TouchableOpacity
               style={styles.registerLink}
-              onPress={() => navigation.navigate('Register', { role: 'patient' })}
+              onPress={() => {
+                const selectedRole = route?.params?.role || 'patient';
+                navigation.navigate(selectedRole === 'clinic' ? 'ClinicRegister' : 'Register',
+                  selectedRole === 'patient' ? { role: 'patient' } : undefined);
+              }}
               activeOpacity={0.7}
             >
               <Text style={styles.registerLinkText}>

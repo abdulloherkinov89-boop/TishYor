@@ -13,6 +13,7 @@ import LoginScreen from './screens/LoginScreen';
 import XizmatQoshScreen from './screens/doctors/xizmat_qosh';
 import { navigationRef } from './RootNavigation';
 import { Text, View } from 'react-native';
+import HomeScreen from './screens/HomeScreen';
 
 const Stack = createNativeStackNavigator();
 const DOCTORS_STORAGE_KEY = 'tishyor_clinic_doctors';
@@ -248,9 +249,7 @@ export default function App() {
                 )}
               </Stack.Screen>
               <Stack.Screen name="Home">
-                {(props) => (
-                  <WelcomeScreen {...props} onLogout={handleLoggedOut} />
-                )}
+                {(props) => <HomeScreen {...props} onLogout={handleLoggedOut} />}
               </Stack.Screen>
             </Stack.Group>
           )}

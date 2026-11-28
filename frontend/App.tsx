@@ -17,7 +17,16 @@ import HomeScreen from './screens/HomeScreen';
 
 const Stack = createNativeStackNavigator();
 const DOCTORS_STORAGE_KEY = 'tishyor_clinic_doctors';
-const INITIAL_ROUTE = 'AuthChoice';
+
+// WelcomeScreen va HomeScreen props tipida onLogout yo'q bo'lgani uchun
+type LogoutScreenProps = {
+  onLogout: () => void | Promise<void>;
+  [key: string]: any;
+};
+const WelcomeScreenWithLogout =
+  WelcomeScreen as unknown as React.ComponentType<LogoutScreenProps>;
+const HomeScreenWithLogout =
+  HomeScreen as unknown as React.ComponentType<LogoutScreenProps>;
 
 type Doctor = {
   id: string;
@@ -92,16 +101,11 @@ export default function App() {
   const doctorsReadyRef = useRef<Promise<void>>(Promise.resolve());
 
   console.log('APP RENDER role:', authSession?.role ?? 'guest');
-  console.log(
-    'APP NAV: navigator key / initial route:',
-    authSession ? `authenticated-${authSession.role}` : 'guest',
-    authSession ? (authSession.role === 'clinic' ? 'ClinicHome' : 'Welcome') : INITIAL_ROUTE,
-  );
 
+  // Login/Register ekranlari faqat shuni chaqirishi kerak.
+  // Ekranga o'tishni navigator o'zi qiladi (navigation.navigate/replace KERAK EMAS).
   const handleAuthenticated = (session: AuthSession) => {
-    console.log('AUTH: handler start:', session?.role);
-    console.log('AUTH: session received by App:', session.role);
-    console.log('AUTH: setSession called:', session.role);
+    console.log('AUTH: session received by App:', session?.role);
     setAuthSession(session);
   };
 
@@ -174,87 +178,77 @@ export default function App() {
   return (
     <AppErrorBoundary>
       <SafeAreaProvider>
-      <NavigationContainer
-        ref={navigationRef}
-        onReady={() => {
-          console.log(
-            'ROOT NAVIGATION: ready:',
-            navigationRef.isReady(),
-            'initial route:',
-            getCurrentRouteName(),
-          );
-        }}
-        onStateChange={() => {
-          console.log('ROOT NAVIGATION: active route:', getCurrentRouteName());
-        }}
-      >
-        <Stack.Navigator
-          key={authSession ? `authenticated-${authSession.role}` : 'guest'}
-          initialRouteName={
-            authSession
-              ? authSession.role === 'clinic'
-                ? 'ClinicHome'
-                : 'Welcome'
-              : INITIAL_ROUTE
-          }
-          screenOptions={{ headerShown: false }}
+        <NavigationContainer
+          ref={navigationRef}
+          onReady={() => {
+            console.log('ROOT NAVIGATION: ready, route:', getCurrentRouteName());
+          }}
+          onStateChange={() => {
+            console.log('ROOT NAVIGATION: active route:', getCurrentRouteName());
+          }}
         >
-          {!authSession ? (
-            <Stack.Group navigationKey="guest">
-              <Stack.Screen name="AuthChoice" component={AuthChoiceScreen} />
-              <Stack.Screen name="Register">
-                {(props) => (
-                  <RegisterScreen {...props} onAuthenticated={handleAuthenticated} />
-                )}
-              </Stack.Screen>
-              <Stack.Screen name="ClinicRegister">
-                {(props) => (
-                  <ClinicRegister {...props} onAuthenticated={handleAuthenticated} />
-                )}
-              </Stack.Screen>
-              <Stack.Screen name="Login">
-                {(props) => (
-                  <LoginScreen {...props} onAuthenticated={handleAuthenticated} />
-                )}
-              </Stack.Screen>
-            </Stack.Group>
-          ) : authSession.role === 'clinic' ? (
-            <Stack.Group navigationKey="clinic">
-              <Stack.Screen name="ClinicHome">
-                {(props) => (
-                  <ClinicHome {...props} onLogout={handleLoggedOut} />
-                )}
-              </Stack.Screen>
-              <Stack.Screen
-                name="XizmatQosh"
-                component={XizmatQoshScreen}
-                options={{ presentation: 'transparentModal', animation: 'fade' }}
-              />
-              <Stack.Screen name="AddDoctor">
-                {({ navigation }) => (
-                  <AddDoctorScreen
-                    visible
-                    navigation={navigation}
-                    onClose={() => navigation.goBack()}
-                    onAddDoctor={handleAddDoctor}
-                  />
-                )}
-              </Stack.Screen>
-            </Stack.Group>
-          ) : (
-            <Stack.Group navigationKey="patient">
-              <Stack.Screen name="Welcome">
-                {(props) => (
-                  <WelcomeScreen {...props} onLogout={handleLoggedOut} />
-                )}
-              </Stack.Screen>
-              <Stack.Screen name="Home">
-                {(props) => <HomeScreen {...props} onLogout={handleLoggedOut} />}
-              </Stack.Screen>
-            </Stack.Group>
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {!authSession ? (
+              // Kirmagan foydalanuvchi: birinchi ekran AuthChoice
+              <Stack.Group>
+                <Stack.Screen name="AuthChoice" component={AuthChoiceScreen} />
+                <Stack.Screen name="Register">
+                  {(props) => (
+                    <RegisterScreen {...props} onAuthenticated={handleAuthenticated} />
+                  )}
+                </Stack.Screen>
+                <Stack.Screen name="ClinicRegister">
+                  {(props) => (
+                    <ClinicRegister {...props} onAuthenticated={handleAuthenticated} />
+                  )}
+                </Stack.Screen>
+                <Stack.Screen name="Login">
+                  {(props) => (
+                    <LoginScreen {...props} onAuthenticated={handleAuthenticated} />
+                  )}
+                </Stack.Screen>
+              </Stack.Group>
+            ) : authSession.role === 'clinic' ? (
+              // Klinika: birinchi ekran ClinicHome
+              <Stack.Group>
+                <Stack.Screen name="ClinicHome">
+                  {(props) => (
+                    <ClinicHome {...props} onLogout={handleLoggedOut} />
+                  )}
+                </Stack.Screen>
+                <Stack.Screen
+                  name="XizmatQosh"
+                  component={XizmatQoshScreen}
+                  options={{ presentation: 'transparentModal', animation: 'fade' }}
+                />
+                <Stack.Screen name="AddDoctor">
+                  {({ navigation }) => (
+                    <AddDoctorScreen
+                      visible
+                      navigation={navigation}
+                      onClose={() => navigation.goBack()}
+                      onAddDoctor={handleAddDoctor}
+                    />
+                  )}
+                </Stack.Screen>
+              </Stack.Group>
+            ) : (
+              // Bemor: birinchi ekran Welcome
+              <Stack.Group>
+                <Stack.Screen name="Welcome">
+                  {(props) => (
+                    <WelcomeScreenWithLogout {...props} onLogout={handleLoggedOut} />
+                  )}
+                </Stack.Screen>
+                <Stack.Screen name="Home">
+                  {(props) => (
+                    <HomeScreenWithLogout {...props} onLogout={handleLoggedOut} />
+                  )}
+                </Stack.Screen>
+              </Stack.Group>
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
       </SafeAreaProvider>
     </AppErrorBoundary>
   );

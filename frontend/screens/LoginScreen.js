@@ -99,7 +99,10 @@ const LoginScreen = ({ onAuthenticated, route }) => {
           throw new Error('Server javobida token yoki foydalanuvchi ma\'lumoti yo\'q');
         }
 
-        const role = data.user.role || 'patient';
+        const role = data.user.role;
+        if (role !== 'patient' && role !== 'clinic') {
+          throw new Error('Hisob turi aniqlanmadi. Iltimos, qayta urinib ko\'ring.');
+        }
         const user = { ...data.user, role };
         console.log('LOGIN: sessiya saqlanmoqda...');
         await AsyncStorage.multiSet([
@@ -138,7 +141,11 @@ const LoginScreen = ({ onAuthenticated, route }) => {
         >
           <View style={styles.headerContainer}>
             <Text style={styles.title}>
-              {route?.params?.role === 'clinic' ? 'Klinikaga kirish' : 'Bemor sifatida kirish'}
+              {route?.params?.role === 'clinic'
+                ? 'Klinikaga kirish'
+                : route?.params?.role === 'patient'
+                  ? 'Bemor sifatida kirish'
+                  : 'Hisobga kirish'}
             </Text>
             <Text style={styles.subtitle}>
               Telefon raqamingiz orqali hisobingizga kiring
@@ -163,7 +170,6 @@ const LoginScreen = ({ onAuthenticated, route }) => {
                 onBlur={() => setIsFocused(false)}
                 autoComplete="tel"
                 textContentType="telephoneNumber"
-                maxLength={19} // Noto'g'ri ortiqcha belgi kiritishni cheklash
               />
             </View>
 

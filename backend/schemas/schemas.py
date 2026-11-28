@@ -8,7 +8,7 @@ class UserCreate(BaseModel):
     ism: str
     familiya: str
     telefon: str
-    role: str = "patient"
+    role: Literal["patient"] = "patient"
 
 
 class LoginRequest(BaseModel):

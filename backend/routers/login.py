@@ -13,7 +13,17 @@ router = APIRouter(prefix="/auth", tags=["Kirish"])
 
 
 def normalize_telefon(telefon: str) -> str:
-    return re.sub(r"\s+", "", telefon)
+    digits = re.sub(r"\D", "", telefon)
+    if len(digits) == 9:
+        digits = "998" + digits
+    return digits
+
+
+def phone_lookup_expression(column):
+    expression = func.replace(column, " ", "")
+    for separator in ("+", "(", ")", "-", "."):
+        expression = func.replace(expression, separator, "")
+    return expression
 
 
 @router.post(
@@ -23,49 +33,63 @@ def normalize_telefon(telefon: str) -> str:
 )
 def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
     telefon = normalize_telefon(login_data.telefon)
+    requested_role = login_data.role
 
-    if login_data.role in (None, "clinic"):
+    clinic = None
+    user = None
+    if requested_role in (None, "clinic"):
         clinic = (
             db.query(Clinic)
-            .filter(func.replace(Clinic.telefon, " ", "") == telefon)
+            .filter(phone_lookup_expression(Clinic.telefon) == telefon)
             .first()
         )
-        if clinic is not None:
-            token = create_access_token(clinic.id, telefon, role="clinic")
-            return AuthResponse(
-                access_token=token,
-                user={"id": clinic.id, "name": clinic.name, "telefon": telefon, "role": "clinic"},
-            )
-
-    if login_data.role == "clinic":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bu telefon raqam bilan klinika topilmadi",
+    if requested_role in (None, "patient"):
+        user = (
+            db.query(User)
+            .filter(phone_lookup_expression(User.telefon) == telefon)
+            .first()
         )
 
-    user = (
-        db.query(User)
-        .filter(func.replace(User.telefon, " ", "") == telefon)
-        .first()
-    )
-    if user is None:
-        if login_data.role == "patient":
+    if requested_role is None:
+        if clinic is not None and user is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Bu telefon raqam bir nechta hisobda bor. Hisob turini aniqlash uchun qo'llab-quvvatlash xizmatiga murojaat qiling.",
+            )
+        if clinic is not None:
+            requested_role = "clinic"
+        elif user is not None and user.role == "patient":
+            requested_role = "patient"
+
+    if requested_role == "clinic":
+        if clinic is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Bu telefon raqam bilan bemor topilmadi",
+                detail="Bu telefon raqam bilan klinika topilmadi",
             )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Bu telefon raqam bilan hisob topilmadi",
+        token = create_access_token(clinic.id, telefon, role="clinic")
+        return AuthResponse(
+            access_token=token,
+            user={
+                "id": clinic.id,
+                "name": clinic.name,
+                "telefon": clinic.telefon,
+                "address": clinic.address,
+                "status": clinic.status,
+                "patients_served": clinic.patients_served,
+                "rating": clinic.rating,
+                "logo_url": clinic.logo_url,
+                "role": "clinic",
+            },
         )
 
-    if login_data.role == "patient" and user.role != "patient":
+    if user is None or user.role != "patient":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bu telefon raqam bilan bemor topilmadi",
         )
 
-    token = create_access_token(user.id, user.telefon, role=user.role)
+    token = create_access_token(user.id, user.telefon, role="patient")
     return AuthResponse(
         access_token=token,
         user={
@@ -73,7 +97,7 @@ def login_user(login_data: LoginRequest, db: Session = Depends(get_db)):
             "ism": user.ism,
             "familiya": user.familiya,
             "telefon": user.telefon,
-            "role": user.role,
+            "role": "patient",
             "created_at": user.created_at,
         },
     )

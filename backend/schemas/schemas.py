@@ -56,6 +56,11 @@ class ClinicCreated(BaseModel):
     id: int
     name: str
     status: ClinicStatus
+    telefon: Optional[str] = None
+    address: Optional[str] = None
+    patients_served: Optional[int] = None
+    logo_url: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class ClinicRegisterResponse(BaseModel):

@@ -7,6 +7,7 @@ import {
   Easing,
   Image,
   Linking,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -498,6 +499,14 @@ export default function ClinicHome({ navigation, route, onLogout }) {
   };
 
   const confirmLogout = () => {
+    if (Platform.OS === 'web') {
+      const confirmed =
+        typeof window !== 'undefined' && typeof window.confirm === 'function'
+          ? window.confirm('Haqiqatan ham hisobdan chiqmoqchimisiz?')
+          : true;
+      if (confirmed) handleLogout();
+      return;
+    }
     Alert.alert('Hisobdan chiqish', 'Haqiqatan ham chiqmoqchimisiz?', [
       { text: 'Bekor qilish', style: 'cancel' },
       { text: 'Chiqish', style: 'destructive', onPress: handleLogout },
@@ -804,6 +813,7 @@ export default function ClinicHome({ navigation, route, onLogout }) {
         user={{ name: clinicName, role: 'Klinika' }}
         userPhone={clinic?.telefon}
         userJoinDate={clinic?.created_at}
+        onLogout={handleLogout}
       />
     </Animated.View>
   );

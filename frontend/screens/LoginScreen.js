@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -14,115 +14,100 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ArrowLeft, Building2, UserRound } from 'lucide-react-native';
 import { apiFetch } from '../utils/api';
+import {
+  PHONE_PREFIX,
+  formatUzPhone,
+  parseApiError,
+  toApiUzPhone,
+} from '../utils/phone';
 
 const LoginScreen = ({ onAuthenticated, route }) => {
   const navigation = useNavigation();
-  const [telefon, setTelefon] = useState('+998 ');
+  const routeRole =
+    route?.params?.role === 'clinic' || route?.params?.role === 'patient'
+      ? route.params.role
+      : null;
+
+  const [selectedRole, setSelectedRole] = useState(routeRole);
+  const [showRolePicker, setShowRolePicker] = useState(false);
+  const [telefon, setTelefon] = useState(PHONE_PREFIX);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [isFocused, setIsFocused] = useState(false);
 
-  // Telefon raqamini O'zbekiston formati boyicha shakllantirish (+998 (XX) XXX-XX-XX)
-  const formatPhoneNumber = (text) => {
-    // Faqat raqamlarni ajratib olamiz
-    const cleaned = text.replace(/\D/g, '');
-
-    // Agar foydalanuvchi barchasini o'chirib tashlasa ham +998 saqlanadi
-    if (cleaned.length <= 3) {
-      return '+998 ';
-    }
-
-    // 998 dan keyingi raqamlar
-    const number = cleaned.startsWith('998') ? cleaned.slice(3) : cleaned;
-    const limitedNumber = number.slice(0, 9); // Maksimal 9 ta raqam (kodsiz)
-
-    let formatted = '+998 ';
-
-    if (limitedNumber.length > 0) {
-      formatted += `(${limitedNumber.slice(0, 2)}`;
-    }
-    if (limitedNumber.length >= 2) {
-      formatted += `) `;
-    }
-    if (limitedNumber.length > 2) {
-      formatted += `${limitedNumber.slice(2, 5)}`;
-    }
-    if (limitedNumber.length >= 5) {
-      formatted += `-${limitedNumber.slice(5, 7)}`;
-    }
-    if (limitedNumber.length >= 7) {
-      formatted += `-${limitedNumber.slice(7, 9)}`;
-    }
-
-    return formatted;
-  };
+  useEffect(() => {
+    setSelectedRole(routeRole);
+    setShowRolePicker(false);
+    setErrorMessage('');
+  }, [routeRole]);
 
   const handlePhoneChange = (text) => {
-    const formatted = formatPhoneNumber(text);
-    setTelefon(formatted);
+    setTelefon(formatUzPhone(text));
+    if (errorMessage) setErrorMessage('');
+  };
+
+  const handleRoleChange = (role) => {
+    setSelectedRole(role);
     if (errorMessage) setErrorMessage('');
   };
 
   const handleLogin = async () => {
-    // Serverga yuborish uchun toza raqam formatini olamiz: +998901234567
-    const rawDigits = telefon.replace(/\D/g, '');
-    
-    if (rawDigits.length < 12) {
+    const cleanPhone = toApiUzPhone(telefon);
+    if (!cleanPhone) {
       setErrorMessage("Iltimos, telefon raqamingizni to'liq kiriting");
       return;
     }
-
-    const cleanPhone = `+${rawDigits}`;
 
     setLoading(true);
     setErrorMessage('');
 
     try {
-      console.log('LOGIN: so‘rov yuborilmoqda...');
       const response = await apiFetch('/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           telefon: cleanPhone,
-          role: route?.params?.role || null,
+          role: selectedRole,
         }),
       });
-      console.log('LOGIN: javob keldi, status:', response.status);
       const data = await response.json().catch(() => ({}));
-      console.log('LOGIN: javob o‘qildi; token/user:', Boolean(data.access_token), Boolean(data.user));
 
-      if (response.ok) {
-        if (!data.access_token || !data.user) {
-          throw new Error('Server javobida token yoki foydalanuvchi ma\'lumoti yo\'q');
+      if (!response.ok) {
+        if (response.status === 409) {
+          setShowRolePicker(true);
         }
+        setErrorMessage(parseApiError(data.detail, 'Kirishda xatolik yuz berdi'));
+        return;
+      }
 
-        const role = data.user.role;
-        if (role !== 'patient' && role !== 'clinic') {
-          throw new Error('Hisob turi aniqlanmadi. Iltimos, qayta urinib ko\'ring.');
-        }
-        const user = { ...data.user, role };
-        console.log('LOGIN: sessiya saqlanmoqda...');
-        await AsyncStorage.multiSet([
-          ['token', data.access_token],
-          ['user', JSON.stringify(user)],
-          ['role', role],
-        ]);
-        console.log('LOGIN: sahifaga o‘tilmoqda...');
-        onAuthenticated?.({ role, user });
-      } else {
-        setErrorMessage(
-          typeof data.detail === 'string'
-            ? data.detail
-            : "Kirishda xatolik yuz berdi",
+      if (!data.access_token || !data.user) {
+        throw new Error("Server javobida token yoki foydalanuvchi ma'lumoti yo'q");
+      }
+
+      const role = data.user.role;
+      if (role !== 'patient' && role !== 'clinic') {
+        throw new Error("Hisob turi aniqlanmadi. Iltimos, qayta urinib ko'ring.");
+      }
+
+      if (selectedRole && role !== selectedRole) {
+        throw new Error(
+          selectedRole === 'clinic'
+            ? 'Bu raqam klinika hisobiga tegishli emas'
+            : 'Bu raqam bemor hisobiga tegishli emas',
         );
       }
+
+      const user = { ...data.user, role };
+      await AsyncStorage.multiSet([
+        ['token', data.access_token],
+        ['user', JSON.stringify(user)],
+        ['role', role],
+      ]);
+      onAuthenticated?.({ role, user });
     } catch (error) {
-      console.log('LOGIN ERROR:', error);
-      console.log('LOGIN ERROR MESSAGE:', error.message);
-      setErrorMessage(error.message || 'Serverga ulanishda xatolik yuz berdi');
+      setErrorMessage(error?.message || 'Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
     }
@@ -137,13 +122,25 @@ const LoginScreen = ({ onAuthenticated, route }) => {
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {navigation.canGoBack() ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft color="#334155" size={20} />
+              <Text style={styles.backButtonText}>Orqaga</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <View style={styles.headerContainer}>
             <Text style={styles.title}>
-              {route?.params?.role === 'clinic'
+              {selectedRole === 'clinic'
                 ? 'Klinikaga kirish'
-                : route?.params?.role === 'patient'
+                : selectedRole === 'patient'
                   ? 'Bemor sifatida kirish'
                   : 'Hisobga kirish'}
             </Text>
@@ -151,6 +148,54 @@ const LoginScreen = ({ onAuthenticated, route }) => {
               Telefon raqamingiz orqali hisobingizga kiring
             </Text>
           </View>
+
+          {showRolePicker ? (
+            <View style={styles.roleSwitch}>
+              <TouchableOpacity
+                style={[
+                  styles.roleOption,
+                  selectedRole === 'patient' && styles.roleOptionActive,
+                ]}
+                onPress={() => handleRoleChange('patient')}
+                activeOpacity={0.8}
+              >
+                <UserRound
+                  size={16}
+                  color={selectedRole === 'patient' ? '#0083CA' : '#64748B'}
+                />
+                <Text
+                  style={[
+                    styles.roleOptionText,
+                    selectedRole === 'patient' && styles.roleOptionTextActive,
+                  ]}
+                >
+                  Bemor
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.roleOption,
+                  selectedRole === 'clinic' && styles.roleOptionActive,
+                ]}
+                onPress={() => handleRoleChange('clinic')}
+                activeOpacity={0.8}
+              >
+                <Building2
+                  size={16}
+                  color={selectedRole === 'clinic' ? '#0083CA' : '#64748B'}
+                />
+                <Text
+                  style={[
+                    styles.roleOptionText,
+                    selectedRole === 'clinic' && styles.roleOptionTextActive,
+                  ]}
+                >
+                  Klinika
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
 
           <View style={styles.formContainer}>
             <View style={styles.inputGroup}>
@@ -161,15 +206,17 @@ const LoginScreen = ({ onAuthenticated, route }) => {
                   isFocused && styles.inputFocused,
                   errorMessage ? styles.inputError : null,
                 ]}
-                placeholder="+998 (90) 123-45-67"
+                placeholder="+998 90 123 45 67"
                 placeholderTextColor="#94A3B8"
                 keyboardType="phone-pad"
                 value={telefon}
                 onChangeText={handlePhoneChange}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
+                onSubmitEditing={handleLogin}
                 autoComplete="tel"
                 textContentType="telephoneNumber"
+                maxLength={17}
               />
             </View>
 
@@ -196,14 +243,19 @@ const LoginScreen = ({ onAuthenticated, route }) => {
             <TouchableOpacity
               style={styles.registerLink}
               onPress={() => {
-                const selectedRole = route?.params?.role || 'patient';
-                navigation.navigate(selectedRole === 'clinic' ? 'ClinicRegister' : 'Register',
-                  selectedRole === 'patient' ? { role: 'patient' } : undefined);
+                if (selectedRole === 'clinic') {
+                  navigation.navigate('ClinicRegister');
+                } else if (selectedRole === 'patient') {
+                  navigation.navigate('Register', { role: 'patient' });
+                } else {
+                  navigation.navigate('AuthChoice');
+                }
               }}
               activeOpacity={0.7}
             >
               <Text style={styles.registerLinkText}>
-                Hisobingiz yo'qmi? Yaratish
+                Hisobingiz yo'qmi?{' '}
+                <Text style={styles.linkHighlight}>Ro'yxatdan o'tish</Text>
               </Text>
             </TouchableOpacity>
           </View>
@@ -226,14 +278,28 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingVertical: 24,
     justifyContent: 'center',
     maxWidth: 500,
     width: '100%',
     alignSelf: 'center',
   },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingVertical: 8,
+    paddingRight: 12,
+    marginBottom: 16,
+  },
+  backButtonText: {
+    color: '#334155',
+    fontSize: 15,
+    fontWeight: '600',
+  },
   headerContainer: {
-    marginBottom: 32,
+    marginBottom: 24,
     alignItems: 'center',
   },
   title: {
@@ -242,11 +308,44 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     marginBottom: 8,
     letterSpacing: -0.5,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 15,
     color: '#64748B',
     textAlign: 'center',
+  },
+  roleSwitch: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 22,
+    padding: 4,
+    marginBottom: 24,
+  },
+  roleOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 18,
+  },
+  roleOptionActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  roleOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  roleOptionTextActive: {
+    color: '#0083CA',
   },
   formContainer: {
     width: '100%',
@@ -309,8 +408,11 @@ const styles = StyleSheet.create({
     marginTop: 24,
   },
   registerLinkText: {
-    color: '#0083CA',
+    color: '#64748B',
     fontSize: 15,
-    fontWeight: '600',
+  },
+  linkHighlight: {
+    color: '#0083CA',
+    fontWeight: '700',
   },
 });

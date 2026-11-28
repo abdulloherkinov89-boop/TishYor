@@ -2,7 +2,11 @@ import { NativeModules, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
-import { navigate } from '../RootNavigation';
+let unauthorizedHandler = null;
+
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = typeof handler === 'function' ? handler : null;
+}
 
 /**
  * API Sozlamalari:
@@ -106,9 +110,10 @@ export async function apiFetch(url, options = {}) {
 
         if (response.status === 401) {
           console.warn('[API 401] Sessiya muddati tugagan yoki token yaroqsiz:', fullUrl);
-          const role = await AsyncStorage.getItem('role');
-          await AsyncStorage.multiRemove(['token', 'user', 'role']);
-          navigate('Login', { role: role === 'clinic' ? 'clinic' : 'patient' });
+          if (token) {
+            await AsyncStorage.multiRemove(['token', 'user', 'role']);
+            await unauthorizedHandler?.();
+          }
         }
 
         return response;

@@ -7,18 +7,17 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-import { File as ExpoFile } from 'expo-file-system';
-import { apiFetch } from '../utils/api';
 import {
+  ArrowLeft,
   Building2,
   Phone,
   MapPin,
@@ -30,6 +29,14 @@ import {
   ChevronRight,
   Plus,
 } from 'lucide-react-native';
+import { apiFetch } from '../utils/api';
+import {
+  PHONE_PREFIX,
+  formatUzPhone,
+  isValidUzPhone,
+  parseApiError,
+  toApiUzPhone,
+} from '../utils/phone';
 
 export default function ClinicRegister({ navigation, onAuthenticated }) {
   const [currentStep, setCurrentStep] = useState(1);
@@ -39,11 +46,14 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
 
   const [formData, setFormData] = useState({
     name: '',
-    phone: '+998 ',
+    phone: PHONE_PREFIX,
     addressMode: 'manual',
     address: '',
     patientsServed: '',
     logoUri: null,
+    logoFile: null,
+    logoName: null,
+    logoType: null,
     latitude: null,
     longitude: null,
   });
@@ -60,10 +70,10 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
 
   useEffect(() => {
     if (currentStep === 1) {
-      Animated.loop(
+      const loop = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 1.1,
+            toValue: 1.08,
             duration: 1000,
             useNativeDriver: true,
           }),
@@ -72,10 +82,12 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
             duration: 1000,
             useNativeDriver: true,
           }),
-        ])
-      ).start();
+        ]),
+      );
+      loop.start();
+      return () => loop.stop();
     }
-  }, [currentStep]);
+  }, [currentStep, pulseAnim]);
 
   useEffect(() => {
     Animated.timing(scaleAnim, {
@@ -83,18 +95,18 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
       duration: 200,
       useNativeDriver: true,
     }).start();
-  }, [focusedInput]);
+  }, [focusedInput, scaleAnim]);
 
-  const isStepValid = () => {
-    switch (currentStep) {
+  const isStepValid = (step = currentStep) => {
+    switch (step) {
       case 1:
         return formData.name.trim().length > 0;
       case 2:
-        return formData.phone.trim().length === 17;
+        return isValidUzPhone(formData.phone);
       case 3:
         return formData.address.trim().length > 0;
       case 4:
-        return formData.patientsServed.trim().length > 0;
+        return /^\d+$/.test(formData.patientsServed.trim());
       case 5:
         return true;
       default:
@@ -110,19 +122,9 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
     }).start();
   }, [formData, currentStep]);
 
-  const formatPhoneNumber = (text) => {
-    if (!text.startsWith('+998 ')) {
-      text = '+998 ';
-    }
-    const rawDigits = text.slice(5).replace(/\D/g, '').slice(0, 9);
-    let formatted = '+998 ';
-
-    if (rawDigits.length > 0) formatted += rawDigits.slice(0, 2);
-    if (rawDigits.length > 2) formatted += ' ' + rawDigits.slice(2, 5);
-    if (rawDigits.length > 5) formatted += ' ' + rawDigits.slice(5, 7);
-    if (rawDigits.length > 7) formatted += ' ' + rawDigits.slice(7, 9);
-
-    setFormData((prev) => ({ ...prev, phone: formatted }));
+  const handlePhoneChange = (text) => {
+    setFormData((prev) => ({ ...prev, phone: formatUzPhone(text) }));
+    if (errorMessage) setErrorMessage('');
   };
 
   const handleGetLocation = async () => {
@@ -131,41 +133,62 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Ruxsat berilmadi', 'Joylashuvni aniqlash uchun ruxsat kerak.');
-        setIsLocating(false);
+        setErrorMessage('Joylashuvni aniqlash uchun ruxsat berilmadi.');
         return;
       }
 
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = location.coords;
+
       setFormData((prev) => ({
         ...prev,
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+        latitude,
+        longitude,
       }));
-      const geocode = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
 
-      if (geocode && geocode.length > 0) {
-        const item = geocode[0];
-        const fullAddress = `${item.city || item.region || ''}, ${item.street || ''} ${item.name || ''}`.trim();
-        setFormData((prev) => ({
-          ...prev,
-          address: fullAddress || 'Noma\'lum manzil',
-        }));
+      try {
+        const geocode = await Location.reverseGeocodeAsync({
+          latitude,
+          longitude,
+        });
+        if (geocode && geocode.length > 0) {
+          const item = geocode[0];
+          const fullAddress = [
+            item.city || item.region,
+            [item.street, item.name].filter(Boolean).join(' '),
+          ]
+            .filter(Boolean)
+            .join(', ')
+            .trim();
+          if (fullAddress) {
+            setFormData((prev) => ({ ...prev, address: fullAddress }));
+            return;
+          }
+        }
+      } catch {
+        // Web yoki geocoder xizmati ishlamagan holatda koordinatalar saqlanadi
       }
-    } catch (error) {
-      Alert.alert('Xatolik', 'Joylashuvni olib bo\'lmadi. Qayta urinib ko\'ring.');
+
+      setFormData((prev) => ({
+        ...prev,
+        address:
+          prev.address.trim() ||
+          `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+      }));
+    } catch {
+      setErrorMessage("Joylashuvni aniqlab bo'lmadi. Manzilni qo'lda kiriting.");
     } finally {
       setIsLocating(false);
     }
   };
 
   const handlePickImage = async () => {
+    setErrorMessage('');
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permissionResult.granted) {
-      Alert.alert('Ruxsat kerak', 'Galereyaga kirish uchun ruxsat bering.');
+      setErrorMessage('Galereyaga kirish uchun ruxsat bering.');
       return;
     }
 
@@ -216,11 +239,26 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
     });
   };
 
+  const getStepErrorMessage = (step) => {
+    switch (step) {
+      case 1:
+        return 'Iltimos, klinika nomini kiriting';
+      case 2:
+        return "Iltimos, telefon raqamni to'liq kiriting";
+      case 3:
+        return 'Iltimos, klinika manzilini kiriting';
+      case 4:
+        return 'Iltimos, xizmat ko‘rsatilgan bemorlar sonini kiriting';
+      default:
+        return "Iltimos, maydonni to'g'ri to'ldiring";
+    }
+  };
+
   const handleNext = () => {
     setErrorMessage('');
     if (!isStepValid()) {
       triggerShake();
-      setErrorMessage("Iltimos, maydonni to'g'ri to'ldiring!");
+      setErrorMessage(getStepErrorMessage(currentStep));
       return;
     }
 
@@ -233,49 +271,80 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
     setErrorMessage('');
     if (currentStep > 1) {
       animateStepTransition(currentStep - 1, 'back');
+    } else if (navigation?.canGoBack?.()) {
+      navigation.goBack();
     }
+  };
+
+  const uploadLogoIfNeeded = async () => {
+    if (!formData.logoUri) return null;
+
+    const logoForm = new FormData();
+    const extension = (formData.logoName || formData.logoUri)
+      .split('.')
+      .pop()
+      ?.split(/[?#]/)[0]
+      ?.toLowerCase();
+    const imageType =
+      formData.logoType ||
+      (extension === 'png'
+        ? 'image/png'
+        : extension === 'webp'
+          ? 'image/webp'
+          : 'image/jpeg');
+    const fileName = formData.logoName || `clinic-logo.${extension || 'jpg'}`;
+
+    if (Platform.OS === 'web') {
+      if (formData.logoFile) {
+        logoForm.append('file', formData.logoFile, fileName);
+      } else {
+        const blob = await (await fetch(formData.logoUri)).blob();
+        logoForm.append('file', blob, fileName);
+      }
+    } else {
+      logoForm.append('file', {
+        uri: formData.logoUri,
+        name: fileName,
+        type: imageType,
+      });
+    }
+
+    const uploadResponse = await apiFetch('/clinics/upload-logo', {
+      method: 'POST',
+      body: logoForm,
+    });
+    const uploadData = await uploadResponse.json().catch(() => ({}));
+    if (!uploadResponse.ok) {
+      throw new Error(
+        parseApiError(uploadData.detail, "Logotipni yuklab bo'lmadi"),
+      );
+    }
+    return uploadData.logo_url;
   };
 
   const handleSubmit = async () => {
     if (isSubmitting.current) return;
+
+    const cleanPhone = toApiUzPhone(formData.phone);
+    if (!formData.name.trim() || !cleanPhone || !formData.address.trim() || !/^\d+$/.test(formData.patientsServed.trim())) {
+      setErrorMessage("Iltimos, barcha majburiy maydonlarni to'g'ri to'ldiring");
+      return;
+    }
+
     isSubmitting.current = true;
     setIsLoading(true);
-    try {
-      let logoUrl = null;
-      if (formData.logoUri) {
-        const logoForm = new FormData();
-        const extension = (formData.logoName || formData.logoUri)
-          .split('.')
-          .pop()
-          ?.split(/[?#]/)[0]
-          ?.toLowerCase();
-        const imageType = formData.logoType
-          || (extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg');
-        const fileName = formData.logoName || `clinic-logo.${extension || 'jpg'}`;
-        if (Platform.OS === 'web' && formData.logoFile) {
-          logoForm.append('file', formData.logoFile, fileName);
-        } else {
-          const logoFile = new ExpoFile(formData.logoUri);
-          logoForm.append('file', logoFile, fileName);
-        }
+    setErrorMessage('');
 
-        const uploadResponse = await apiFetch('/clinics/upload-logo', {
-          method: 'POST',
-          body: logoForm,
-        });
-        const uploadData = await uploadResponse.json().catch(() => ({}));
-        if (!uploadResponse.ok) {
-          throw new Error(getBackendErrorMessage(uploadData.detail));
-        }
-        logoUrl = uploadData.logo_url;
-      }
+    try {
+      const logoUrl = await uploadLogoIfNeeded();
+      const patientsCount = Number.parseInt(formData.patientsServed.trim(), 10);
 
       const payload = {
         name: formData.name.trim(),
-        telefon: formData.phone.replace(/\s/g, ''),
+        telefon: cleanPhone,
         address: formData.address.trim(),
-        patients_served: Number(formData.patientsServed),
-        description: `${formData.patientsServed} ta bemorga xizmat ko'rsatgan`,
+        patients_served: patientsCount,
+        description: `${patientsCount} ta bemorga xizmat ko'rsatgan`,
         logo_url: logoUrl,
         license_number: '',
       };
@@ -292,21 +361,23 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
       const responseData = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(getBackendErrorMessage(responseData.detail));
+        throw new Error(
+          parseApiError(responseData.detail, "Ro'yxatdan o'tishda xatolik yuz berdi"),
+        );
       }
 
       if (!responseData.access_token || !responseData.clinic) {
-        throw new Error('Klinika saqlandi, lekin server kirish ma’lumotlarini qaytarmadi.');
+        throw new Error("Klinika saqlandi, lekin server kirish ma'lumotlarini qaytarmadi.");
       }
 
       const role = responseData.role || 'clinic';
       const clinicUser = {
         ...responseData.clinic,
-        address: payload.address,
-        telefon: payload.telefon,
-        patients_served: payload.patients_served,
+        address: responseData.clinic.address || payload.address,
+        telefon: responseData.clinic.telefon || payload.telefon,
+        patients_served: responseData.clinic.patients_served ?? payload.patients_served,
         description: payload.description,
-        logo_url: payload.logo_url,
+        logo_url: responseData.clinic.logo_url ?? payload.logo_url,
         latitude: payload.latitude ?? null,
         longitude: payload.longitude ?? null,
         role,
@@ -318,23 +389,13 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
       ]);
       onAuthenticated?.({ role, user: clinicUser });
     } catch (error) {
-      Alert.alert('Xatolik', getBackendErrorMessage(error.message));
+      setErrorMessage(
+        parseApiError(error?.message, "Server bilan aloqa bog'lanmadi. Qayta urinib ko'ring."),
+      );
     } finally {
       isSubmitting.current = false;
       setIsLoading(false);
     }
-  };
-
-  const getBackendErrorMessage = (detail) => {
-    const message = typeof detail === 'string'
-      ? detail
-      : detail && typeof detail === 'object'
-        ? Object.values(detail).flat().join(' ')
-        : '';
-    if (/all[a-z]*\s+ro['’]?yxatdan|already\s+registered|telefon.*mavjud/i.test(message)) {
-      return 'Bu raqam allaqachon ro\'yxatdan o\'tgan';
-    }
-    return message || 'Server bilan aloqa bog\'lanmadi. Qayta urinib ko\'ring.';
   };
 
   const renderStepContent = () => {
@@ -361,9 +422,13 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
                 placeholder="Masalan: Stomatologiya Servis"
                 placeholderTextColor="#94A3B8"
                 value={formData.name}
-                onChangeText={(text) => setFormData({ ...formData, name: text })}
+                onChangeText={(text) => {
+                  setFormData((prev) => ({ ...prev, name: text }));
+                  if (errorMessage) setErrorMessage('');
+                }}
                 onFocus={() => setFocusedInput(true)}
                 onBlur={() => setFocusedInput(false)}
+                onSubmitEditing={handleNext}
               />
               <Animated.View style={{ opacity: checkFadeAnim }}>
                 <Check color="#10B981" size={20} />
@@ -391,11 +456,15 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
             >
               <TextInput
                 style={styles.textInput}
+                placeholder="+998 90 123 45 67"
+                placeholderTextColor="#94A3B8"
                 keyboardType="phone-pad"
                 value={formData.phone}
-                onChangeText={formatPhoneNumber}
+                onChangeText={handlePhoneChange}
                 onFocus={() => setFocusedInput(true)}
                 onBlur={() => setFocusedInput(false)}
+                onSubmitEditing={handleNext}
+                maxLength={17}
               />
               <Animated.View style={{ opacity: checkFadeAnim }}>
                 <Check color="#10B981" size={20} />
@@ -416,7 +485,7 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
             <View style={styles.tabContainer}>
               <TouchableOpacity
                 style={[styles.tabButton, formData.addressMode === 'manual' && styles.tabActive]}
-                onPress={() => setFormData({ ...formData, addressMode: 'manual' })}
+                onPress={() => setFormData((prev) => ({ ...prev, addressMode: 'manual' }))}
               >
                 <Text style={[styles.tabText, formData.addressMode === 'manual' && styles.tabTextActive]}>
                   Qo'lda kiritish
@@ -424,7 +493,7 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.tabButton, formData.addressMode === 'gps' && styles.tabActive]}
-                onPress={() => setFormData({ ...formData, addressMode: 'gps' })}
+                onPress={() => setFormData((prev) => ({ ...prev, addressMode: 'gps' }))}
               >
                 <Text style={[styles.tabText, formData.addressMode === 'gps' && styles.tabTextActive]}>
                   GPS orqali aniqlash
@@ -444,7 +513,7 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
                     <Text style={[styles.gpsButtonText, { marginLeft: 8 }]}>Aniqlanmoqda...</Text>
                   </View>
                 ) : (
-                  <Text style={styles.gpsButtonText}>📍 Joylashuvni aniqlash</Text>
+                  <Text style={styles.gpsButtonText}>Joylashuvni aniqlash</Text>
                 )}
               </TouchableOpacity>
             )}
@@ -462,9 +531,13 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
                 placeholder="Toshkent sh., Yunusobod t., 4-mavze..."
                 placeholderTextColor="#94A3B8"
                 value={formData.address}
-                onChangeText={(text) => setFormData({ ...formData, address: text })}
+                onChangeText={(text) => {
+                  setFormData((prev) => ({ ...prev, address: text }));
+                  if (errorMessage) setErrorMessage('');
+                }}
                 onFocus={() => setFocusedInput(true)}
                 onBlur={() => setFocusedInput(false)}
+                onSubmitEditing={handleNext}
               />
               <Animated.View style={{ opacity: checkFadeAnim }}>
                 <Check color="#10B981" size={20} />
@@ -496,9 +569,14 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
                 placeholderTextColor="#94A3B8"
                 keyboardType="number-pad"
                 value={formData.patientsServed}
-                onChangeText={(text) => setFormData({ ...formData, patientsServed: text })}
+                onChangeText={(text) => {
+                  const digitsOnly = text.replace(/\D/g, '');
+                  setFormData((prev) => ({ ...prev, patientsServed: digitsOnly }));
+                  if (errorMessage) setErrorMessage('');
+                }}
                 onFocus={() => setFocusedInput(true)}
                 onBlur={() => setFocusedInput(false)}
+                onSubmitEditing={handleNext}
               />
               <Animated.View style={{ opacity: checkFadeAnim }}>
                 <Check color="#10B981" size={20} />
@@ -540,71 +618,94 @@ export default function ClinicRegister({ navigation, onAuthenticated }) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Yuqori Progress Indicator */}
-        <View style={styles.progressContainer}>
-          {[1, 2, 3, 4, 5].map((step) => (
-            <View
-              key={step}
-              style={[
-                styles.progressDot,
-                step <= currentStep ? styles.progressActive : styles.progressInactive,
-              ]}
-            />
-          ))}
-        </View>
-
-        {/* Markaziy Kontent Area */}
-        <Animated.View
-          style={[
-            styles.cardContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateX: slideAnim }],
-            },
-          ]}
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         >
-          {renderStepContent()}
-
-          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-        </Animated.View>
-
-        {/* Navigatsiya Tugmalari */}
-        <View style={styles.navigationContainer}>
-          {currentStep > 1 ? (
-            <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-              <ChevronLeft color="#0083CA" size={20} />
-              <Text style={styles.backButtonText}>Orqaga</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={{ flex: 1 }} />
-          )}
-
-          {currentStep < 5 ? (
-            <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
-              <Text style={styles.nextButtonText}>Keyingisi</Text>
-              <ChevronRight color="#FFFFFF" size={20} />
-            </TouchableOpacity>
-          ) : (
+          {navigation?.canGoBack?.() ? (
             <TouchableOpacity
-              style={[styles.nextButton, styles.submitButton]}
-              onPress={handleSubmit}
-              disabled={isLoading}
+              style={styles.topBackButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
             >
-              {isLoading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.nextButtonText}>Ro'yxatdan o'tish</Text>
-              )}
+              <ArrowLeft color="#334155" size={20} />
+              <Text style={styles.topBackButtonText}>Bosh sahifa</Text>
             </TouchableOpacity>
-          )}
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          ) : null}
+
+          <View style={styles.progressContainer}>
+            {[1, 2, 3, 4, 5].map((step) => (
+              <View
+                key={step}
+                style={[
+                  styles.progressDot,
+                  step <= currentStep ? styles.progressActive : styles.progressInactive,
+                ]}
+              />
+            ))}
+          </View>
+
+          <Animated.View
+            style={[
+              styles.cardContainer,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateX: slideAnim }],
+              },
+            ]}
+          >
+            {renderStepContent()}
+
+            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+          </Animated.View>
+
+          <View style={styles.navigationContainer}>
+            {currentStep > 1 ? (
+              <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+                <ChevronLeft color="#0083CA" size={20} />
+                <Text style={styles.backButtonText}>Orqaga</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
+
+            {currentStep < 5 ? (
+              <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
+                <Text style={styles.nextButtonText}>Keyingisi</Text>
+                <ChevronRight color="#FFFFFF" size={20} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.nextButton, styles.submitButton, isLoading && styles.disabledButton]}
+                onPress={handleSubmit}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.nextButtonText}>Ro'yxatdan o'tish</Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={styles.loginLink}
+            onPress={() => navigation.navigate('Login', { role: 'clinic' })}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.loginLinkText}>
+              Klinika hisobingiz bormi? <Text style={styles.linkHighlight}>Kirish</Text>
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -613,15 +714,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+  keyboardView: {
+    flex: 1,
+  },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 30,
+    paddingVertical: 24,
     maxWidth: 600,
     width: '100%',
     alignSelf: 'center',
+  },
+  topBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingVertical: 8,
+    paddingRight: 12,
+    marginBottom: 16,
+  },
+  topBackButtonText: {
+    color: '#334155',
+    fontSize: 15,
+    fontWeight: '600',
   },
   progressContainer: {
     flexDirection: 'row',
@@ -784,7 +902,8 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#EF4444',
     fontSize: 13,
-    marginTop: 12,
+    fontWeight: '600',
+    marginTop: 14,
     textAlign: 'center',
   },
   navigationContainer: {
@@ -818,6 +937,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0083CA',
     paddingHorizontal: 20,
   },
+  disabledButton: {
+    opacity: 0.7,
+  },
   nextButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
@@ -827,5 +949,17 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  loginLink: {
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  loginLinkText: {
+    color: '#64748B',
+    fontSize: 15,
+  },
+  linkHighlight: {
+    color: '#0083CA',
+    fontWeight: '700',
   },
 });

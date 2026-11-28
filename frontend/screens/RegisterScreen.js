@@ -1,22 +1,27 @@
 import React, { useState } from 'react';
 import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ArrowLeft } from 'lucide-react-native';
 import { apiFetch } from '../utils/api';
-
-const PHONE_PREFIX = '+998 ';
+import {
+  PHONE_PREFIX,
+  formatUzPhone,
+  parseApiError,
+  toApiUzPhone,
+} from '../utils/phone';
 
 const RegisterScreen = ({ onAuthenticated }) => {
   const navigation = useNavigation();
@@ -27,104 +32,72 @@ const RegisterScreen = ({ onAuthenticated }) => {
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-
   const [focusedInput, setFocusedInput] = useState(null);
 
-  // Telefon raqamni formatlash: +998 90 123 45 67
-  const formatPhoneNumber = (digits) => {
-    let formatted = '+998';
-    if (digits.length > 0) {
-      formatted += ' ' + digits.slice(0, 2); // 90
-    }
-    if (digits.length > 2) {
-      formatted += ' ' + digits.slice(2, 5); // 123
-    }
-    if (digits.length > 5) {
-      formatted += ' ' + digits.slice(5, 7); // 45
-    }
-    if (digits.length > 7) {
-      formatted += ' ' + digits.slice(7, 9); // 67
-    }
-    return formatted;
-  };
-
   const handlePhoneChange = (text) => {
-    // "998" dan keyingi qismini olamiz (faqat raqamlar)
-    let afterPrefix = text.replace(/\D/g, '');
-    if (afterPrefix.startsWith('998')) {
-      afterPrefix = afterPrefix.slice(3);
-    }
-    // 9 ta raqamdan (90 123 45 67) ortiq bo'lmasin
-    afterPrefix = afterPrefix.slice(0, 9);
-
-    setTelefon(formatPhoneNumber(afterPrefix));
+    setTelefon(formatUzPhone(text));
+    if (errorMessage) setErrorMessage('');
   };
 
   const handlePhoneFocus = () => {
     setFocusedInput('telefon');
-    // Agar foydalanuvchi maydonni to'liq tozalab qo'ygan bo'lsa, prefiksni qaytaramiz
     if (!telefon.startsWith('+998')) {
       setTelefon(PHONE_PREFIX);
     }
   };
 
   const handleRegister = async () => {
-    const digitsOnly = telefon.replace(/\D/g, '');
+    const cleanIsm = ism.trim();
+    const cleanFamiliya = familiya.trim();
+    const cleanPhone = toApiUzPhone(telefon);
 
-    if (!ism.trim() || !familiya.trim() || digitsOnly.length < 12) {
-      setErrorMessage("Iltimos, barcha maydonlarni to'liq to'ldiring");
+    if (!cleanIsm || !cleanFamiliya) {
+      setErrorMessage('Iltimos, ism va familiyangizni kiriting');
       return;
     }
 
-    const cleanPhone = '+' + digitsOnly;
+    if (!cleanPhone) {
+      setErrorMessage("Iltimos, telefon raqamingizni to'liq kiriting");
+      return;
+    }
 
     setLoading(true);
     setErrorMessage('');
 
     try {
-      console.log("So'rov yuborilmoqda...");
       const response = await apiFetch('/auth/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ism: ism.trim(),
-          familiya: familiya.trim(),
+          ism: cleanIsm,
+          familiya: cleanFamiliya,
           telefon: cleanPhone,
           role: 'patient',
         }),
       });
-      console.log('Javob keldi, status:', response.status);
 
       const data = await response.json().catch(() => ({}));
-      console.log('REGISTER: javob o‘qildi; token/user:', Boolean(data.access_token), Boolean(data.user));
 
-      if (response.ok) {
-        if (!data.access_token || !data.user) {
-          throw new Error('Server javobida token yoki foydalanuvchi ma\'lumoti yo\'q');
-        }
-
-        const role = data.user.role || 'patient';
-        const user = { ...data.user, role };
-        console.log('REGISTER: sessiya saqlanmoqda...');
-        await AsyncStorage.multiSet([
-          ['token', data.access_token],
-          ['user', JSON.stringify(user)],
-          ['role', role],
-        ]);
-        console.log('REGISTER: sahifaga o‘tilmoqda...');
-        onAuthenticated?.({ role, user });
-      } else {
+      if (!response.ok) {
         setErrorMessage(
-          typeof data.detail === 'string'
-            ? data.detail
-            : "Ro'yxatdan o'tishda xatolik yuz berdi",
+          parseApiError(data.detail, "Ro'yxatdan o'tishda xatolik yuz berdi"),
         );
+        return;
       }
+
+      if (!data.access_token || !data.user) {
+        throw new Error("Server javobida token yoki foydalanuvchi ma'lumoti yo'q");
+      }
+
+      const role = data.user.role || 'patient';
+      const user = { ...data.user, role };
+      await AsyncStorage.multiSet([
+        ['token', data.access_token],
+        ['user', JSON.stringify(user)],
+        ['role', role],
+      ]);
+      onAuthenticated?.({ role, user });
     } catch (error) {
-      console.log('REGISTER ERROR:', error);
-      console.log('ERROR MESSAGE:', error?.message);
       setErrorMessage(error?.message || 'Serverga ulanishda xatolik yuz berdi');
     } finally {
       setLoading(false);
@@ -140,8 +113,20 @@ const RegisterScreen = ({ onAuthenticated }) => {
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {navigation.canGoBack() ? (
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
+            >
+              <ArrowLeft color="#334155" size={20} />
+              <Text style={styles.backButtonText}>Orqaga</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <View style={styles.headerContainer}>
             <Text style={styles.title}>Bemor ro'yxati</Text>
             <Text style={styles.subtitle}>
@@ -160,7 +145,10 @@ const RegisterScreen = ({ onAuthenticated }) => {
                 placeholder="Ismingizni kiriting"
                 placeholderTextColor="#94A3B8"
                 value={ism}
-                onChangeText={setIsm}
+                onChangeText={(value) => {
+                  setIsm(value);
+                  if (errorMessage) setErrorMessage('');
+                }}
                 onFocus={() => setFocusedInput('ism')}
                 onBlur={() => setFocusedInput(null)}
               />
@@ -176,7 +164,10 @@ const RegisterScreen = ({ onAuthenticated }) => {
                 placeholder="Familiyangizni kiriting"
                 placeholderTextColor="#94A3B8"
                 value={familiya}
-                onChangeText={setFamiliya}
+                onChangeText={(value) => {
+                  setFamiliya(value);
+                  if (errorMessage) setErrorMessage('');
+                }}
                 onFocus={() => setFocusedInput('familiya')}
                 onBlur={() => setFocusedInput(null)}
               />
@@ -189,12 +180,14 @@ const RegisterScreen = ({ onAuthenticated }) => {
                   styles.input,
                   focusedInput === 'telefon' && styles.inputFocused,
                 ]}
+                placeholder="+998 90 123 45 67"
                 placeholderTextColor="#94A3B8"
                 keyboardType="phone-pad"
                 value={telefon}
                 onChangeText={handlePhoneChange}
                 onFocus={handlePhoneFocus}
                 onBlur={() => setFocusedInput(null)}
+                onSubmitEditing={handleRegister}
                 maxLength={17}
               />
             </View>
@@ -221,11 +214,11 @@ const RegisterScreen = ({ onAuthenticated }) => {
 
             <TouchableOpacity
               style={styles.loginLink}
-              onPress={() => navigation.navigate('Login')}
+              onPress={() => navigation.navigate('Login', { role: 'patient' })}
               activeOpacity={0.7}
             >
               <Text style={styles.loginLinkText}>
-                Akauntingiz bormi? <Text style={styles.linkHighlight}>Kirish</Text>
+                Hisobingiz bormi? <Text style={styles.linkHighlight}>Kirish</Text>
               </Text>
             </TouchableOpacity>
           </View>
@@ -248,11 +241,25 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingVertical: 24,
     justifyContent: 'center',
     maxWidth: 500,
     width: '100%',
     alignSelf: 'center',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingVertical: 8,
+    paddingRight: 12,
+    marginBottom: 16,
+  },
+  backButtonText: {
+    color: '#334155',
+    fontSize: 15,
+    fontWeight: '600',
   },
   headerContainer: {
     marginBottom: 28,

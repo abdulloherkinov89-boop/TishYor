@@ -156,12 +156,14 @@ function ClinicCard({ clinic, onPress }) {
 // HOME SCREEN
 // ======================================
 
-export default function HomeScreen() {
+export default function HomeScreen({ onLogout }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   const [userName, setUserName] = useState('Mehmon');
   const [userInitials, setUserInitials] = useState('M');
+  const [userPhone, setUserPhone] = useState('');
+  const [userJoinDate, setUserJoinDate] = useState(null);
 
   const [activeFilter, setActiveFilter] = useState(FILTERS[0]);
   const [activeTab, setActiveTab] = useState('Bosh sahifa');
@@ -232,10 +234,7 @@ export default function HomeScreen() {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
+        onLogout?.();
       }
     } catch (error) {
       console.log('Token error:', error);
@@ -273,6 +272,8 @@ export default function HomeScreen() {
 
           setUserInitials(`${firstLetter}${lastLetter}` || 'M');
         }
+        setUserPhone(parsedUser.telefon || '');
+        setUserJoinDate(parsedUser.created_at || null);
       }
     } catch (error) {
       console.log('User data error:', error);
@@ -578,6 +579,9 @@ export default function HomeScreen() {
         onClose={handleProfileClose}
         userName={userName}
         userInitials={userInitials}
+        userPhone={userPhone}
+        userJoinDate={userJoinDate}
+        onLogout={onLogout}
       />
 
       {/* CLINIC DETAIL MODAL */}

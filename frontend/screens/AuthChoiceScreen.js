@@ -49,7 +49,7 @@ export default function AuthChoiceScreen() {
           activeOpacity={0.7}
         >
           <LogIn color="#334155" size={18} />
-          <Text style={styles.loginButtonText}>Hisobim bor, kirish</Text>
+          <Text style={styles.loginButtonText}>Kirish</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

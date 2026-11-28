@@ -14,6 +14,7 @@ import XizmatQoshScreen from './screens/doctors/xizmat_qosh';
 import { navigationRef } from './RootNavigation';
 import { Text, View } from 'react-native';
 import HomeScreen from './screens/HomeScreen';
+import { apiFetch, setUnauthorizedHandler } from './utils/api';
 
 const Stack = createNativeStackNavigator();
 const DOCTORS_STORAGE_KEY = 'tishyor_clinic_doctors';
@@ -96,7 +97,7 @@ class AppErrorBoundary extends React.Component<React.PropsWithChildren, AppError
 export default function App() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [isHydrating, setIsHydrating] = useState(true);
   const doctorsRef = useRef<Doctor[]>([]);
   const doctorsReadyRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -119,30 +120,82 @@ export default function App() {
   };
 
   useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAuthSession(null);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  useEffect(() => {
     let isActive = true;
 
     const restoreSession = async () => {
       try {
-        const [[, token], [, userStr], [, role]] = await AsyncStorage.multiGet([
+        const [token, storedUser, storedRole] = await AsyncStorage.multiGet([
           'token',
           'user',
           'role',
         ]);
-        if (token && userStr && isActive) {
-          const parsedUser = JSON.parse(userStr);
-          const resolvedRole = role || parsedUser?.role || 'patient';
-          setAuthSession({ role: resolvedRole, user: parsedUser });
+
+        const userJson = storedUser[1];
+        const role = storedRole[1];
+
+        if (!token[1] || !userJson || (role !== 'patient' && role !== 'clinic')) {
+          await AsyncStorage.multiRemove(['token', 'user', 'role']);
+          if (isActive) setAuthSession(null);
+          return;
         }
-      } catch (err) {
-        console.warn('Sessiyani tiklashda xatolik:', err);
-      } finally {
+
+        const parsedUser: unknown = JSON.parse(userJson);
+        if (typeof parsedUser !== 'object' || parsedUser === null) {
+          await AsyncStorage.multiRemove(['token', 'user', 'role']);
+          if (isActive) setAuthSession(null);
+          return;
+        }
+
+        const user = parsedUser as Record<string, unknown>;
         if (isActive) {
-          setIsInitializing(false);
+          setAuthSession({ role, user: { ...user, role } });
         }
+
+        // Tokenni fon rejimida backend bilan tekshirish
+        try {
+          const meRes = await apiFetch('/auth/me');
+          if (!isActive) return;
+          if (meRes.ok) {
+            const freshUser = (await meRes.json()) as Record<string, unknown>;
+            const freshRole = freshUser?.role === 'clinic' ? 'clinic' : 'patient';
+            await AsyncStorage.multiSet([
+              ['user', JSON.stringify({ ...freshUser, role: freshRole })],
+              ['role', freshRole],
+            ]);
+            if (isActive) {
+              setAuthSession({ role: freshRole, user: { ...freshUser, role: freshRole } });
+            }
+          } else if (meRes.status === 401 || meRes.status === 404) {
+            await AsyncStorage.multiRemove(['token', 'user', 'role']);
+            if (isActive) setAuthSession(null);
+          }
+        } catch {
+          // Tarmoq vaqtincha mavjud bo'lmaganda keshdagi sessiyani saqlab qolamiz
+        }
+      } catch (error) {
+        console.warn('Saqlangan sessiyani tiklab bo‘lmadi:', error);
+        await AsyncStorage.multiRemove(['token', 'user', 'role']);
+        if (isActive) setAuthSession(null);
+      } finally {
+        if (isActive) setIsHydrating(false);
       }
     };
 
     restoreSession();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
 
     doctorsReadyRef.current = AsyncStorage.getItem(DOCTORS_STORAGE_KEY)
       .then((storedDoctors) => {
@@ -171,8 +224,16 @@ export default function App() {
     setDoctors(updatedDoctors);
   };
 
-  if (isInitializing) {
-    return null;
+  if (isHydrating) {
+    return (
+      <AppErrorBoundary>
+        <SafeAreaProvider>
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' }}>
+            <Text style={{ color: '#64748B', fontSize: 16 }}>Yuklanmoqda...</Text>
+          </View>
+        </SafeAreaProvider>
+      </AppErrorBoundary>
+    );
   }
 
   return (
@@ -190,7 +251,7 @@ export default function App() {
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             {!authSession ? (
               // Kirmagan foydalanuvchi: birinchi ekran AuthChoice
-              <Stack.Group>
+              <Stack.Group navigationKey="auth">
                 <Stack.Screen name="AuthChoice" component={AuthChoiceScreen} />
                 <Stack.Screen name="Register">
                   {(props) => (
@@ -210,7 +271,7 @@ export default function App() {
               </Stack.Group>
             ) : authSession.role === 'clinic' ? (
               // Klinika: birinchi ekran ClinicHome
-              <Stack.Group>
+              <Stack.Group navigationKey="clinic">
                 <Stack.Screen name="ClinicHome">
                   {(props) => (
                     <ClinicHome {...props} onLogout={handleLoggedOut} />
@@ -234,7 +295,7 @@ export default function App() {
               </Stack.Group>
             ) : (
               // Bemor: birinchi ekran Welcome
-              <Stack.Group>
+              <Stack.Group navigationKey="patient">
                 <Stack.Screen name="Welcome">
                   {(props) => (
                     <WelcomeScreenWithLogout {...props} onLogout={handleLoggedOut} />

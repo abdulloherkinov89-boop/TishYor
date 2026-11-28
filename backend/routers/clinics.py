@@ -8,7 +8,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from auth.auth import create_access_token, decode_access_token
+from auth.auth import (
+    create_access_token,
+    decode_access_token,
+    extract_uz_phone_digits,
+    normalize_uz_phone,
+    phone_lookup_expression,
+)
 from database.db import get_db
 import models.models as models
 import schemas.schemas as schemas
@@ -30,7 +36,8 @@ IMAGE_TYPES = {
 
 
 def normalize_telefon(telefon: str) -> str:
-    return re.sub(r"\s+", "", telefon)
+    digits = extract_uz_phone_digits(telefon)
+    return f"+{digits}" if digits else ""
 
 
 @router.post(
@@ -48,16 +55,24 @@ def register_clinic(data: schemas.ClinicRegister, db: Session = Depends(get_db))
     if missing_fields:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=missing_fields)
 
-    telefon = normalize_telefon(data.telefon)
-    if not PHONE_PATTERN.fullmatch(telefon):
+    try:
+        telefon = normalize_uz_phone(data.telefon)
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"telefon": "Telefon +998XXXXXXXXX formatida bo'lishi kerak"},
         )
 
+    if data.patients_served is not None and data.patients_served < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"patients_served": "Bemorlar soni manfiy bo'lishi mumkin emas"},
+        )
+
+    digits = extract_uz_phone_digits(telefon)
     existing_clinic = (
         db.query(models.Clinic)
-        .filter(func.replace(models.Clinic.telefon, " ", "") == telefon)
+        .filter(phone_lookup_expression(models.Clinic.telefon) == digits)
         .first()
     )
     if existing_clinic is not None:
@@ -69,7 +84,7 @@ def register_clinic(data: schemas.ClinicRegister, db: Session = Depends(get_db))
     # Avoid ambiguous phone-based login between patient and clinic accounts.
     existing_user = (
         db.query(models.User)
-        .filter(func.replace(models.User.telefon, " ", "") == telefon)
+        .filter(phone_lookup_expression(models.User.telefon) == digits)
         .first()
     )
     if existing_user is not None:
@@ -103,7 +118,16 @@ def register_clinic(data: schemas.ClinicRegister, db: Session = Depends(get_db))
 
     token = create_access_token(clinic.id, clinic.telefon, role="clinic")
     return schemas.ClinicRegisterResponse(
-        clinic=schemas.ClinicCreated(id=clinic.id, name=clinic.name, status=clinic.status),
+        clinic=schemas.ClinicCreated(
+            id=clinic.id,
+            name=clinic.name,
+            status=clinic.status,
+            telefon=clinic.telefon,
+            address=clinic.address,
+            patients_served=clinic.patients_served,
+            logo_url=clinic.logo_url,
+            created_at=clinic.created_at,
+        ),
         access_token=token,
     )
 

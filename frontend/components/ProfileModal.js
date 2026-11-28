@@ -1,527 +1,323 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React from 'react';
 import {
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
   StyleSheet,
   Text,
-  View,
-  ScrollView,
   TouchableOpacity,
-  Image,
-  StatusBar,
-  Animated,
-  RefreshControl,
+  View,
 } from 'react-native';
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  Search,
-  ChevronRight,
-  Home,
-  MessageCircle,
-  User,
-  Star,
-} from 'lucide-react-native';
-
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { LinearGradient } from 'expo-linear-gradient';
-
-import { apiFetch } from '../utils/api';
-import ProfileModal from './ProfileModal';
-import ClinicDetailModal from '../components/ClinicDetailModal';
+import { Calendar, LogOut, Phone, ShieldCheck, UserRound, X } from 'lucide-react-native';
 
 const BLUE = '#0083CA';
 
-const FILTERS = [
-  'Yaqin klinikalar',
-  "Reyting bo'yicha",
-  'Arzon narx',
-  'Ochiq hozir',
-];
-
-// ======================================
-// TAB BUTTON
-// ======================================
-
-function TabButton({ icon: Icon, label, isActive, onPress, onLayout }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      onPress={onPress}
-      onLayout={onLayout}
-      style={styles.tabItem}
-    >
-      {isActive ? (
-        <View style={styles.activeTab}>
-          <Icon size={20} color={BLUE} />
-          <Text style={styles.activeTabText}>{label}</Text>
-        </View>
-      ) : (
-        <Icon size={21} color="#94A3B8" />
-      )}
-    </TouchableOpacity>
-  );
+function formatJoinDate(dateValue) {
+  if (!dateValue) return null;
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString('uz-UZ', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
 }
 
-// ======================================
-// SKELETON LOADER CARD
-// ======================================
-
-function SkeletonClinicCard() {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.7,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [opacity]);
-
-  return (
-    <Animated.View style={[styles.clinicCard, { opacity }]}>
-      <View style={[styles.logoContainer, { backgroundColor: '#E2E8F0', borderRadius: 13 }]} />
-      <View style={styles.clinicInfo}>
-        <View style={styles.clinicTopRow}>
-          <View style={{ width: '50%', height: 12, backgroundColor: '#E2E8F0', borderRadius: 6 }} />
-          <View style={{ width: 30, height: 12, backgroundColor: '#E2E8F0', borderRadius: 6 }} />
-        </View>
-        <View style={{ width: '70%', height: 10, backgroundColor: '#E2E8F0', borderRadius: 5, marginBottom: 6 }} />
-        <View style={{ width: '40%', height: 10, backgroundColor: '#E2E8F0', borderRadius: 5, marginBottom: 8 }} />
-        <View style={{ width: '60%', height: 9, backgroundColor: '#E2E8F0', borderRadius: 4 }} />
-      </View>
-    </Animated.View>
-  );
+function getInitials(name = '') {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'T';
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('');
 }
 
-// ======================================
-// CLINIC CARD
-// ======================================
-
-function ClinicCard({ clinic, onPress }) {
-  const gradientStart = clinic.gradient_start || '#43BCEB';
-  const gradientEnd = clinic.gradient_end || '#0083CA';
-  const hasRating = clinic.rating != null && !isNaN(Number(clinic.rating)) && Number(clinic.rating) > 0;
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      style={styles.clinicCard}
-      onPress={onPress}
-    >
-      <View style={styles.logoContainer}>
-        {clinic.logo_url ? (
-          <Image
-            source={{ uri: clinic.logo_url }}
-            style={styles.clinicLogo}
-            resizeMode="cover"
-          />
-        ) : (
-          <LinearGradient
-            colors={[gradientStart, gradientEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.clinicLogo}
-          >
-            <Text style={styles.logoText}>
-              {clinic.name?.[0]?.toUpperCase() || 'K'}
-            </Text>
-          </LinearGradient>
-        )}
-        <View style={styles.onlineBadge} />
-      </View>
-
-      <View style={styles.clinicInfo}>
-        <View style={styles.clinicTopRow}>
-          <Text numberOfLines={1} style={styles.clinicName}>
-            {clinic.name}
-          </Text>
-          <View style={styles.ratingContainer}>
-            <Star size={14} color={BLUE} fill={hasRating ? BLUE : 'none'} />
-            <Text style={styles.ratingText}>
-              {hasRating ? Number(clinic.rating).toFixed(1) : 'Yangi'}
-            </Text>
-          </View>
-        </View>
-
-        <Text numberOfLines={1} style={styles.clinicAddress}>
-          {clinic.address || 'Manzil mavjud emas'}
-        </Text>
-
-        {clinic.patients_served != null && (
-          <Text numberOfLines={1} style={styles.patientsText}>
-            {clinic.patients_served} ta bemor xizmat oldi
-          </Text>
-        )}
-
-        <View style={styles.clinicBottomRow}>
-          <Text style={styles.distanceText}>
-            {clinic.distance != null ? `${clinic.distance} km` : 'Masofa mavjud emas'}
-          </Text>
-          <View style={styles.dot} />
-          <View style={styles.openStatus}>
-            <Text style={styles.openStatusText}>
-              {clinic.is_open === false ? 'Yopiq' : 'Ochiq'}
-            </Text>
-          </View>
-          <Text style={styles.workingHours}>
-            {clinic.working_hours || '09:00–20:00'}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-// ======================================
-// HOME SCREEN
-// ======================================
-
-export default function HomeScreen() {
-  const navigation = useNavigation();
+export default function ProfileModal({
+  visible,
+  onClose,
+  user,
+  userName,
+  userInitials,
+  userPhone,
+  userJoinDate,
+  onLogout,
+}) {
   const insets = useSafeAreaInsets();
 
-  const [userName, setUserName] = useState('Aziza Karimova');
-  const [userInitials, setUserInitials] = useState('AK');
+  const resolvedName =
+    user?.name ||
+    [user?.ism, user?.familiya].filter(Boolean).join(' ').trim() ||
+    userName ||
+    'Foydalanuvchi';
+  const resolvedInitials = userInitials || getInitials(resolvedName);
+  const resolvedRole =
+    user?.role === 'clinic' || user?.role === 'Klinika' ? 'Klinika' : 'Bemor';
+  const resolvedPhone = userPhone || user?.telefon || 'Ko‘rsatilmagan';
+  const resolvedJoinDate = formatJoinDate(userJoinDate || user?.created_at);
 
-  const [activeFilter, setActiveFilter] = useState(FILTERS[0]);
-  const [activeTab, setActiveTab] = useState('Bosh sahifa');
-  const [selectedTab, setSelectedTab] = useState('Bosh sahifa');
+  const handleLogoutPress = () => {
+    if (!onLogout) return;
 
-  const [profileVisible, setProfileVisible] = useState(false);
-  const previousTab = useRef('Bosh sahifa');
-
-  const [selectedClinic, setSelectedClinic] = useState(null);
-  const [clinicDetailVisible, setClinicDetailVisible] = useState(false);
-
-  const [clinics, setClinics] = useState([]);
-  const [loadingClinics, setLoadingClinics] = useState(true);
-  const [refreshingClinics, setRefreshingClinics] = useState(false);
-  const [clinicsError, setClinicsError] = useState(null);
-
-  const fetchClinics = async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshingClinics(true);
-    } else {
-      setLoadingClinics(true);
-    }
-    setClinicsError(null);
-
-    try {
-      const response = await apiFetch('/clinics/');
-      if (!response.ok) {
-        throw new Error(`Klinikalarni yuklashda xatolik (${response.status})`);
+    if (Platform.OS === 'web') {
+      const confirmed =
+        typeof window !== 'undefined' && typeof window.confirm === 'function'
+          ? window.confirm('Hisobdan chiqmoqchimisiz?')
+          : true;
+      if (confirmed) {
+        onClose?.();
+        onLogout();
       }
-      const data = await response.json();
-      setClinics(Array.isArray(data) ? data : []);
-    } catch (error) {
-      setClinicsError(error.message || 'Ulanishda xatolik yuz berdi');
-    } finally {
-      setLoadingClinics(false);
-      setRefreshingClinics(false);
-    }
-  };
-
-  const loadUserData = async () => {
-    try {
-      const storedUser = await AsyncStorage.getItem('user');
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        const firstName = parsedUser.ism || parsedUser.firstName || parsedUser.name || '';
-        const lastName = parsedUser.familiya || parsedUser.lastName || '';
-        if (firstName || lastName) {
-          const full = `${firstName} ${lastName}`.trim();
-          setUserName(full);
-          const firstLetter = firstName ? firstName[0].toUpperCase() : '';
-          const lastLetter = lastName ? lastName[0].toUpperCase() : '';
-          setUserInitials(`${firstLetter}${lastLetter}` || 'M');
-        }
-      }
-    } catch (error) {
-      console.log('User data error:', error);
-    }
-  };
-
-  useFocusEffect(
-    useCallback(() => {
-      loadUserData();
-      fetchClinics();
-    }, [])
-  );
-
-  const filteredClinics = [...clinics].sort((a, b) => {
-    if (activeFilter === "Reyting bo'yicha") {
-      return Number(b.rating || 0) - Number(a.rating || 0);
-    }
-    if (activeFilter === 'Yaqin klinikalar') {
-      return Number(a.distance || 999999) - Number(b.distance || 999999);
-    }
-    if (activeFilter === 'Ochiq hozir') {
-      return Number(b.is_open === true) - Number(a.is_open === true);
-    }
-    return 0;
-  });
-
-  const handleTabPress = (tabName) => {
-    setSelectedTab(tabName);
-    if (tabName === 'Profil') {
-      previousTab.current = activeTab;
-      setProfileVisible(true);
       return;
     }
-    setActiveTab(tabName);
-  };
 
-  const handleProfileClose = () => {
-    setProfileVisible(false);
-    setSelectedTab(previousTab.current);
+    Alert.alert('Hisobdan chiqish', 'Haqiqatan ham hisobdan chiqmoqchimisiz?', [
+      { text: 'Bekor qilish', style: 'cancel' },
+      {
+        text: 'Chiqish',
+        style: 'destructive',
+        onPress: () => {
+          onClose?.();
+          onLogout();
+        },
+      },
+    ]);
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+    <Modal
+      transparent
+      animationType="fade"
+      visible={Boolean(visible)}
+      onRequestClose={onClose}
+    >
+      <View style={styles.overlay}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Profil oynasini yopish"
+          onPress={onClose}
+          style={styles.backdrop}
+        />
 
-      {/* HEADER */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <View style={styles.profileSection}>
-          <View>
-            <Text style={styles.greetingText}>Xayrli kun</Text>
-            <Text style={styles.userNameText}>{userName}</Text>
-          </View>
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={styles.avatar}
-            onPress={() => handleTabPress('Profil')}
-          >
-            <Text style={styles.avatarText}>{userInitials}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* SEARCH */}
-        <TouchableOpacity activeOpacity={0.8} style={styles.searchContainer}>
-          <Search color="#94A3B8" size={19} />
-          <Text style={styles.searchPlaceholder}>Klinika yoki xizmat qidirish</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* MAIN CONTENT */}
-      {activeTab === 'Bosh sahifa' ? (
-        <ScrollView
-          style={styles.contentArea}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 25 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshingClinics}
-              onRefresh={() => fetchClinics(true)}
-              tintColor={BLUE}
-              colors={[BLUE]}
-            />
-          }
-        >
-          {/* FILTERS */}
-          <View style={styles.filtersSection}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersContent}>
-              {FILTERS.map((filter) => {
-                const isActive = activeFilter === filter;
-                return (
-                  <TouchableOpacity
-                    key={filter}
-                    activeOpacity={0.75}
-                    onPress={() => setActiveFilter(filter)}
-                    style={[styles.filterChip, isActive && styles.filterChipActive]}
-                  >
-                    <Text style={[styles.filterText, isActive && styles.filterTextActive]}>
-                      {filter}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Profil</Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Yopish"
+              onPress={onClose}
+              style={styles.closeButton}
+              activeOpacity={0.75}
+            >
+              <X size={20} color="#475569" />
+            </TouchableOpacity>
           </View>
 
-          {/* CLINICS SECTION */}
-          <View style={styles.clinicsSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Klinikalar</Text>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={styles.seeAllButton}
-                onPress={() => navigation.navigate('Clinics')}
-              >
-                <Text style={styles.seeAllText}>Barchasi</Text>
-                <ChevronRight color={BLUE} size={17} />
-              </TouchableOpacity>
+          <View style={styles.identityCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{resolvedInitials}</Text>
+            </View>
+            <View style={styles.identityCopy}>
+              <Text style={styles.nameText} numberOfLines={1}>
+                {resolvedName}
+              </Text>
+              <View style={styles.roleBadge}>
+                <ShieldCheck size={13} color={BLUE} />
+                <Text style={styles.roleText}>{resolvedRole}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.infoList}>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIcon}>
+                <UserRound size={17} color={BLUE} />
+              </View>
+              <View style={styles.infoTextWrap}>
+                <Text style={styles.infoLabel}>Hisob turi</Text>
+                <Text style={styles.infoValue}>{resolvedRole}</Text>
+              </View>
             </View>
 
-            {loadingClinics ? (
-              <View style={styles.cardsList}>
-                <SkeletonClinicCard />
-                <SkeletonClinicCard />
-                <SkeletonClinicCard />
+            <View style={[styles.infoRow, resolvedJoinDate ? styles.infoRowBorder : null]}>
+              <View style={styles.infoIcon}>
+                <Phone size={17} color={BLUE} />
               </View>
-            ) : clinicsError ? (
-              <View style={styles.statusContainer}>
-                <Text style={styles.errorText}>{clinicsError}</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={() => fetchClinics()}>
-                  <Text style={styles.retryButtonText}>Qayta urinish</Text>
-                </TouchableOpacity>
+              <View style={styles.infoTextWrap}>
+                <Text style={styles.infoLabel}>Telefon raqam</Text>
+                <Text style={styles.infoValue}>{resolvedPhone}</Text>
               </View>
-            ) : filteredClinics.length === 0 ? (
-              <View style={styles.statusContainer}>
-                <Text style={styles.statusText}>Hozircha klinikalar mavjud emas</Text>
+            </View>
+
+            {resolvedJoinDate ? (
+              <View style={[styles.infoRow, styles.infoRowBorder]}>
+                <View style={styles.infoIcon}>
+                  <Calendar size={17} color={BLUE} />
+                </View>
+                <View style={styles.infoTextWrap}>
+                  <Text style={styles.infoLabel}>Qo‘shilgan sana</Text>
+                  <Text style={styles.infoValue}>{resolvedJoinDate}</Text>
+                </View>
               </View>
-            ) : (
-              <View style={styles.cardsList}>
-                {filteredClinics.map((clinic) => (
-                  <ClinicCard
-                    key={clinic.id || clinic.name}
-                    clinic={clinic}
-                    onPress={() => {
-                      setSelectedClinic(clinic);
-                      setClinicDetailVisible(true);
-                    }}
-                  />
-                ))}
-              </View>
-            )}
+            ) : null}
           </View>
-        </ScrollView>
-      ) : (
-        <View style={styles.placeholderContainer}>
-          <Text style={styles.placeholderText}>Tez orada</Text>
+
+          {onLogout ? (
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogoutPress}
+              activeOpacity={0.8}
+            >
+              <LogOut size={18} color="#DC2626" />
+              <Text style={styles.logoutText}>Hisobdan chiqish</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
-      )}
-
-      {/* BOTTOM NAVBAR */}
-      <View style={[styles.navbar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <TabButton
-          icon={Home}
-          label="Bosh"
-          isActive={selectedTab === 'Bosh sahifa'}
-          onPress={() => handleTabPress('Bosh sahifa')}
-        />
-        <TabButton
-          icon={MessageCircle}
-          label="Xabarlar"
-          isActive={selectedTab === 'Xabarlar'}
-          onPress={() => handleTabPress('Xabarlar')}
-        />
-        <TabButton
-          icon={User}
-          label="Profil"
-          isActive={selectedTab === 'Profil'}
-          onPress={() => handleTabPress('Profil')}
-        />
       </View>
-
-      {/* PROFILE MODAL */}
-      <ProfileModal
-        visible={profileVisible}
-        onClose={handleProfileClose}
-        userName={userName}
-        userInitials={userInitials}
-      />
-
-      {/* CLINIC DETAIL MODAL */}
-      <ClinicDetailModal
-        visible={clinicDetailVisible}
-        onClose={() => setClinicDetailVisible(false)}
-        clinic={selectedClinic}
-      />
-    </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFC' },
-  header: {
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  sheet: {
     backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     paddingHorizontal: 20,
-    paddingBottom: 18,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    paddingTop: 20,
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
   },
-  profileSection: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
-  greetingText: { color: '#64748B', fontSize: 13 },
-  userNameText: { color: '#0F172A', fontSize: 19, fontWeight: '700', marginTop: 3 },
-  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: BLUE, justifyContent: 'center', alignItems: 'center' },
-  avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', borderRadius: 14, paddingHorizontal: 14, height: 46, gap: 10 },
-  searchPlaceholder: { color: '#94A3B8', fontSize: 13 },
-  contentArea: { flex: 1 },
-  filtersSection: { marginTop: 18 },
-  filtersContent: { paddingHorizontal: 16, gap: 7 },
-  filterChip: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E8F0' },
-  filterChipActive: { backgroundColor: BLUE, borderColor: BLUE },
-  filterText: { color: '#64748B', fontSize: 11, fontWeight: '500' },
-  filterTextActive: { color: '#FFFFFF', fontWeight: '600' },
-  clinicsSection: { marginTop: 23, paddingHorizontal: 16 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  sectionTitle: { color: '#0F172A', fontSize: 17, fontWeight: '700' },
-  seeAllButton: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  seeAllText: { color: BLUE, fontSize: 13, fontWeight: '600' },
-  cardsList: { flexDirection: 'column' },
-  clinicCard: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 17,
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  closeButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  identityCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E9EFF5',
-    padding: 10,
-    marginBottom: 10,
-    gap: 11,
-    shadowColor: '#64748B',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.035,
-    shadowRadius: 5,
-    elevation: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginBottom: 16,
   },
-  logoContainer: { position: 'relative', width: 53, height: 53 },
-  clinicLogo: { width: 53, height: 53, borderRadius: 13, justifyContent: 'center', alignItems: 'center' },
-  logoText: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
-  onlineBadge: { position: 'absolute', bottom: -2, right: -2, width: 11, height: 11, borderRadius: 6, backgroundColor: '#22C55E', borderWidth: 2, borderColor: '#FFFFFF' },
-  clinicInfo: { flex: 1, justifyContent: 'center' },
-  clinicTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 },
-  clinicName: { flex: 1, color: '#0F172A', fontSize: 13, fontWeight: '700', marginRight: 5 },
-  ratingContainer: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  ratingText: { color: BLUE, fontSize: 11, fontWeight: '700' },
-  clinicAddress: { color: '#64748B', fontSize: 10, marginBottom: 3 },
-  patientsText: { color: '#94A3B8', fontSize: 9, marginBottom: 4 },
-  clinicBottomRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  distanceText: { color: '#64748B', fontSize: 9 },
-  dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: '#94A3B8' },
-  openStatus: { flexDirection: 'row', alignItems: 'center' },
-  openStatusText: { color: '#16A34A', fontSize: 12, fontWeight: '600' },
-  workingHours: { color: '#16A34A', fontSize: 9 },
-  statusContainer: { paddingVertical: 40, alignItems: 'center', justifyContent: 'center' },
-  statusText: { color: '#64748B', fontSize: 13, marginTop: 10, textAlign: 'center' },
-  errorText: { color: '#EF4444', fontSize: 13, marginBottom: 12, textAlign: 'center' },
-  retryButton: { backgroundColor: BLUE, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 12 },
-  retryButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
-  placeholderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  placeholderText: { color: '#94A3B8', fontSize: 15 },
-  navbar: {
+  avatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: BLUE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  identityCopy: {
+    flex: 1,
+  },
+  nameText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-    paddingTop: 10,
+    alignSelf: 'flex-start',
+    gap: 5,
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 38 },
-  activeTab: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#E0F2FE', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, gap: 6 },
-  activeTabText: { color: BLUE, fontSize: 12, fontWeight: '700' },
+  roleText: {
+    color: BLUE,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  infoList: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    marginBottom: 18,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+  },
+  infoRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  infoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  infoTextWrap: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    marginBottom: 2,
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  logoutButton: {
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  logoutText: {
+    color: '#DC2626',
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });

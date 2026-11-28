@@ -1,10 +1,13 @@
-import re
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth.auth import create_access_token
+from auth.auth import (
+    create_access_token,
+    extract_uz_phone_digits,
+    normalize_uz_phone,
+    phone_lookup_expression,
+)
 from database.db import get_db
 from models.models import Clinic, User
 from schemas.schemas import TokenResponse, UserCreate, UserOut
@@ -14,17 +17,7 @@ router = APIRouter(prefix="/auth", tags=["Ro'yxatdan o'tish"])
 
 
 def normalize_telefon(telefon: str) -> str:
-    digits = re.sub(r"\D", "", telefon)
-    if len(digits) == 9:
-        digits = "998" + digits
-    return digits
-
-
-def phone_lookup_expression(column):
-    expression = func.replace(column, " ", "")
-    for separator in ("+", "(", ")", "-", "."):
-        expression = func.replace(expression, separator, "")
-    return expression
+    return normalize_uz_phone(telefon)
 
 
 @router.post(
@@ -35,34 +28,57 @@ def phone_lookup_expression(column):
 )
 def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
     """Yangi bemorni ro'yxatdan o'tkazadi va JWT qaytaradi."""
-    telefon = normalize_telefon(user_data.telefon)
+    ism = user_data.ism.strip()
+    familiya = user_data.familiya.strip()
+    if not ism or not familiya:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ism va familiya kiritilishi shart",
+        )
+
+    try:
+        telefon = normalize_uz_phone(user_data.telefon)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    digits = extract_uz_phone_digits(telefon)
     existing_user = (
         db.query(User)
-        .filter(phone_lookup_expression(User.telefon) == telefon)
+        .filter(phone_lookup_expression(User.telefon) == digits)
         .first()
     )
     existing_clinic = (
         db.query(Clinic)
-        .filter(phone_lookup_expression(Clinic.telefon) == telefon)
+        .filter(phone_lookup_expression(Clinic.telefon) == digits)
         .first()
     )
     if existing_user or existing_clinic:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bu raqam bilan allaqachon ro'yxatdan o'tilgan",
+            detail="Bu telefon raqam bilan allaqachon ro'yxatdan o'tilgan",
         )
 
     user = User(
-        ism=user_data.ism,
-        familiya=user_data.familiya,
+        ism=ism,
+        familiya=familiya,
         telefon=telefon,
         role="patient",
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bu telefon raqam bilan allaqachon ro'yxatdan o'tilgan",
+        )
 
-    token = create_access_token(user.id, user.telefon)
+    token = create_access_token(user.id, user.telefon, role="patient")
     return TokenResponse(access_token=token, user=user)
 
 
